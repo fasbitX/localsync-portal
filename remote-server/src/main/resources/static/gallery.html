@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Gallery</title>
+    <link rel="stylesheet" href="/css/gallery.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Loading state -->
+        <div id="loading" class="loading-container">
+            <div class="spinner"></div>
+            <p>Loading gallery...</p>
+        </div>
+
+        <!-- Error state -->
+        <div id="error" class="error-container" style="display:none;">
+            <h2>Gallery Not Found</h2>
+            <p>This gallery link may be invalid or the gallery may have been removed.</p>
+        </div>
+
+        <!-- Gallery content -->
+        <div id="gallery" style="display:none;">
+            <header class="gallery-header">
+                <h1 id="gallery-title"></h1>
+                <p id="gallery-meta" class="meta"></p>
+            </header>
+
+            <div id="empty-message" class="empty-message" style="display:none;">
+                <p>No photos in this gallery yet.</p>
+            </div>
+
+            <div id="photo-grid" class="photo-grid"></div>
+        </div>
+
+        <!-- Lightbox overlay -->
+        <div id="lightbox" class="lightbox" style="display:none;">
+            <div class="lightbox-backdrop"></div>
+            <div class="lightbox-content">
+                <button class="lightbox-close" aria-label="Close">&times;</button>
+                <button class="lightbox-prev" aria-label="Previous">&lsaquo;</button>
+                <button class="lightbox-next" aria-label="Next">&rsaquo;</button>
+                <img id="lightbox-img" src="" alt="">
+                <div class="lightbox-info">
+                    <span id="lightbox-filename"></span>
+                    <a id="lightbox-download" href="#" download class="download-btn">Download</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/gallery.js"></script>
+</body>
+</html>

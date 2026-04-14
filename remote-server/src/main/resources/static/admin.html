@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LocalSync Admin</title>
+    <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login form (shown if not authenticated) -->
+        <div id="login-view" class="login-view">
+            <div class="login-card">
+                <h1>LocalSync Admin</h1>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" name="username"
+                               autocomplete="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password"
+                               autocomplete="current-password" required>
+                    </div>
+                    <div id="login-error" class="form-error" style="display:none;"></div>
+                    <button type="submit" class="btn btn-primary">Sign In</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Dashboard (shown after authentication) -->
+        <div id="dashboard-view" class="dashboard" style="display:none;">
+            <nav class="topbar">
+                <span class="topbar-title">LocalSync Admin</span>
+                <button id="logout-btn" class="btn btn-sm btn-outline">Logout</button>
+            </nav>
+
+            <div class="dashboard-layout">
+                <!-- Sidebar: folder list -->
+                <aside class="sidebar">
+                    <h2>Folders</h2>
+                    <div id="folder-list" class="folder-list">
+                        <p class="muted">Loading...</p>
+                    </div>
+                </aside>
+
+                <!-- Main: selected folder photos -->
+                <main class="main-content">
+                    <div id="no-selection" class="placeholder">
+                        <p>Select a folder from the sidebar to view its photos.</p>
+                    </div>
+
+                    <div id="folder-detail" style="display:none;">
+                        <div class="folder-detail-header">
+                            <div>
+                                <h2 id="detail-title"></h2>
+                                <p id="detail-meta" class="muted"></p>
+                                <p id="detail-gallery-link" class="gallery-link"></p>
+                            </div>
+                            <div class="folder-actions">
+                                <button id="toggle-folder-vis-btn" class="btn btn-sm btn-outline"></button>
+                                <button id="delete-folder-btn" class="btn btn-sm btn-danger">Delete Folder</button>
+                            </div>
+                        </div>
+
+                        <div id="photo-list" class="photo-list"></div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm dialog -->
+    <div id="confirm-overlay" class="confirm-overlay" style="display:none;">
+        <div class="confirm-card">
+            <p id="confirm-message"></p>
+            <div class="confirm-actions">
+                <button id="confirm-cancel" class="btn btn-sm btn-outline">Cancel</button>
+                <button id="confirm-ok" class="btn btn-sm btn-danger">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/admin.js"></script>
+</body>
+</html>
