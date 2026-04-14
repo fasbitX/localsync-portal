@@ -27,6 +27,8 @@
   const statusText = document.getElementById('statusText');
   const sidebarToggle = document.getElementById('sidebarToggle');
   const sidebar = document.getElementById('sidebar');
+  const contextMenu = document.getElementById('contextMenu');
+  let contextMenuPath = null;
 
   // -----------------------------------------------------------------------
   // Utility helpers
@@ -92,6 +94,53 @@
   });
 
   // -----------------------------------------------------------------------
+  // Context menu
+  // -----------------------------------------------------------------------
+
+  function showContextMenu(x, y, relPath) {
+    contextMenuPath = relPath;
+    contextMenu.style.display = 'block';
+    // Position then adjust for viewport overflow
+    contextMenu.style.left = x + 'px';
+    contextMenu.style.top = y + 'px';
+    var rect = contextMenu.getBoundingClientRect();
+    if (x + rect.width > window.innerWidth) {
+      contextMenu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+    }
+    if (y + rect.height > window.innerHeight) {
+      contextMenu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+    }
+  }
+
+  function hideContextMenu() {
+    contextMenu.style.display = 'none';
+    contextMenuPath = null;
+  }
+
+  document.addEventListener('click', function (e) {
+    if (!contextMenu.contains(e.target)) hideContextMenu();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') hideContextMenu();
+  });
+
+  contextMenu.addEventListener('click', function (e) {
+    var item = e.target.closest('.context-menu-item');
+    if (!item) return;
+    var action = item.dataset.action;
+    var folderPath = contextMenuPath;
+    hideContextMenu();
+    if (!folderPath) return;
+    var folderData = foldersCache.find(function (f) { return f.relativePath === folderPath; });
+    switch (action) {
+      case 'subfolder': openSubFolderModal(folderPath); break;
+      case 'invite': openFolderInviteModal(folderPath, folderData ? folderData.galleryUrl || '' : ''); break;
+      case 'rename': openRenameFolderModal(folderPath); break;
+      case 'delete': openDeleteFolderModal(folderPath, folderData ? folderData.fileCount : 0); break;
+    }
+  });
+
+  // -----------------------------------------------------------------------
   // Navigation
   // -----------------------------------------------------------------------
 
@@ -138,79 +187,172 @@
   // FOLDERS VIEW
   // -----------------------------------------------------------------------
 
+  // -- Tree builder: convert flat folder array to nested tree ---------------
+
+  function buildFolderTree(folders) {
+    var nodeMap = {};
+
+    // Pass 1: create all nodes
+    folders.forEach(function (f) {
+      var segments = f.relativePath === '.' ? [] : f.relativePath.split('/');
+      var name = segments.length ? segments[segments.length - 1] : '(root)';
+      nodeMap[f.relativePath] = {
+        relativePath: f.relativePath,
+        name: name,
+        fileCount: f.fileCount,
+        galleryUrl: f.galleryUrl,
+        isPhoto: f.fileCount > 0,
+        children: []
+      };
+    });
+
+    // Pass 2: wire parent-child relationships
+    Object.keys(nodeMap).forEach(function (key) {
+      if (key === '.') return;
+      var parentPath = key.includes('/') ? key.substring(0, key.lastIndexOf('/')) : '.';
+      var parent = nodeMap[parentPath];
+      if (parent) {
+        parent.children.push(nodeMap[key]);
+      }
+    });
+
+    // Sort children alphabetically at every level
+    function sortChildren(node) {
+      node.children.sort(function (a, b) { return a.name.localeCompare(b.name); });
+      node.children.forEach(sortChildren);
+    }
+
+    var root = nodeMap['.'];
+    if (root) {
+      sortChildren(root);
+      return root.children;
+    }
+    return [];
+  }
+
+  // -- Recursive tree renderer ---------------------------------------------
+
+  function renderTreeNodes(nodes, depth) {
+    var html = '';
+    nodes.forEach(function (node) {
+      var hasChildren = node.children.length > 0;
+      var typeClass = node.isPhoto ? ' tree-node--photo' : '';
+
+      html += '<li class="tree-node' + typeClass + '" data-path="' + escapeHtml(node.relativePath) + '">';
+      html += '<div class="tree-row">';
+      html += '<span class="tree-indent" style="width:' + (depth * 20) + 'px"></span>';
+
+      if (hasChildren) {
+        html += '<span class="tree-chevron tree-chevron--open">&#9654;</span>';
+      } else {
+        html += '<span class="tree-chevron tree-chevron--leaf">&#9654;</span>';
+      }
+
+      if (node.isPhoto) {
+        html += '<span class="tree-icon tree-icon--photo">&#128247;</span>';
+      } else {
+        html += '<span class="tree-icon tree-icon--header">&#128193;</span>';
+      }
+
+      html += '<span class="tree-label">' + escapeHtml(node.name) + '</span>';
+
+      if (node.isPhoto) {
+        html += '<span class="tree-meta">' + node.fileCount + ' image' + (node.fileCount !== 1 ? 's' : '') + '</span>';
+      }
+      if (node.galleryUrl) {
+        html += '<a href="' + escapeHtml(node.galleryUrl) + '" target="_blank" class="tree-gallery-link" title="Open gallery">&#128279;</a>';
+      }
+
+      html += '</div>';
+
+      if (hasChildren) {
+        html += '<ul class="tree-children">';
+        html += renderTreeNodes(node.children, depth + 1);
+        html += '</ul>';
+      }
+
+      html += '</li>';
+    });
+    return html;
+  }
+
+  // -- Tree event binding --------------------------------------------------
+
+  function bindTreeEvents() {
+    var tree = contentEl.querySelector('.folder-tree');
+    if (!tree) return;
+
+    // Click on chevron: expand/collapse
+    tree.addEventListener('click', function (e) {
+      var chevron = e.target.closest('.tree-chevron:not(.tree-chevron--leaf)');
+      if (!chevron) return;
+      toggleNode(chevron.closest('.tree-node'));
+    });
+
+    // Double-click on row: expand/collapse or open gallery
+    tree.addEventListener('dblclick', function (e) {
+      var row = e.target.closest('.tree-row');
+      if (!row) return;
+      if (e.target.closest('.tree-gallery-link')) return;
+      var node = row.closest('.tree-node');
+      var childrenUl = node.querySelector(':scope > .tree-children');
+      if (childrenUl) {
+        toggleNode(node);
+      } else {
+        // Leaf photo folder: open gallery
+        var folderData = foldersCache.find(function (f) { return f.relativePath === node.dataset.path; });
+        if (folderData && folderData.galleryUrl) {
+          window.open(folderData.galleryUrl, '_blank');
+        }
+      }
+    });
+
+    // Right-click: context menu
+    tree.addEventListener('contextmenu', function (e) {
+      var row = e.target.closest('.tree-row');
+      if (!row) return;
+      e.preventDefault();
+      var node = row.closest('.tree-node');
+      showContextMenu(e.clientX, e.clientY, node.dataset.path);
+    });
+  }
+
+  function toggleNode(li) {
+    var childrenUl = li.querySelector(':scope > .tree-children');
+    if (!childrenUl) return;
+    var chevron = li.querySelector(':scope > .tree-row > .tree-chevron');
+    var isOpen = childrenUl.style.display !== 'none';
+    childrenUl.style.display = isOpen ? 'none' : 'block';
+    if (chevron) chevron.classList.toggle('tree-chevron--open', !isOpen);
+  }
+
+  // -- Main render function ------------------------------------------------
+
   async function renderFolders() {
     showLoading();
     try {
       foldersCache = await api('GET', '/folders');
+      var tree = buildFolderTree(foldersCache);
+
       var html = '<div class="card"><div class="card-header">' +
         '<h2 class="card-title">Photo Folders</h2>' +
         '<button class="btn btn-primary" id="createFolderBtn">+ New Folder</button></div>';
-      if (foldersCache.length === 0) {
+
+      if (tree.length === 0) {
         html += '<div class="empty-state"><p>No folders found. Create one or drop photos into the watched directory.</p></div>';
       } else {
-        foldersCache.forEach(function (f) {
-          var isRoot = f.relativePath === '.';
-          var name = isRoot ? '(root)' : escapeHtml(f.relativePath);
-          html += '<div class="folder-item">' +
-            '<div class="folder-info">' +
-              '<span class="folder-icon">&#128193;</span>' +
-              '<div><div class="folder-name">' + name + '</div>' +
-              '<div class="folder-meta">' + f.fileCount + ' image' + (f.fileCount !== 1 ? 's' : '') + '</div></div>' +
-            '</div>' +
-            '<div class="folder-actions">';
-          if (f.galleryUrl) {
-            html += '<a href="' + escapeHtml(f.galleryUrl) + '" target="_blank" class="gallery-link">Gallery</a>';
-          }
-          // Sub-folder button
-          html += '<button class="btn btn-sm btn-secondary" data-subfolder="' + escapeHtml(f.relativePath) + '">+ Sub-folder</button>';
-          // Rename button (not for root)
-          if (!isRoot) {
-            html += '<button class="btn btn-sm btn-secondary" data-rename="' + escapeHtml(f.relativePath) + '">Rename</button>';
-          }
-          // Invite button
-          html += '<button class="btn btn-sm btn-primary" data-folder-invite="' + escapeHtml(f.relativePath) + '" data-gallery="' + escapeHtml(f.galleryUrl || '') + '">Invites</button>';
-          // Delete button (not for root)
-          if (!isRoot) {
-            html += '<button class="btn btn-sm btn-danger" data-delete="' + escapeHtml(f.relativePath) + '" data-files="' + f.fileCount + '">Delete</button>';
-          }
-          html += '</div></div>';
-        });
+        html += '<ul class="folder-tree">' + renderTreeNodes(tree, 0) + '</ul>';
+        html += '<p class="text-secondary text-sm" style="padding:8px 12px 0;">Right-click a folder for actions</p>';
       }
+
       html += '</div>';
       contentEl.innerHTML = html;
 
-      // Bind create folder button
       document.getElementById('createFolderBtn').addEventListener('click', function () {
         openCreateFolderModal();
       });
 
-      // Bind sub-folder buttons
-      contentEl.querySelectorAll('[data-subfolder]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          openSubFolderModal(btn.dataset.subfolder);
-        });
-      });
-
-      // Bind rename buttons
-      contentEl.querySelectorAll('[data-rename]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          openRenameFolderModal(btn.dataset.rename);
-        });
-      });
-
-      // Bind delete buttons
-      contentEl.querySelectorAll('[data-delete]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          openDeleteFolderModal(btn.dataset.delete, parseInt(btn.dataset.files, 10));
-        });
-      });
-
-      // Bind invite buttons
-      contentEl.querySelectorAll('[data-folder-invite]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          openFolderInviteModal(btn.dataset.folderInvite, btn.dataset.gallery);
-        });
-      });
+      bindTreeEvents();
     } catch (err) {
       showError('Failed to load folders: ' + err.message);
     }
