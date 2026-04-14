@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.dao.DataIntegrityViolationException;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -182,6 +184,20 @@ public class UploadController {
 
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
 
+        } catch (DataIntegrityViolationException e) {
+            // Race condition: another request created this folder between our check and insert
+            log.info("Folder already exists (concurrent create): {}", normalizedPath);
+            Optional<Folder> raceFolder = folderRepository.findByRelativePath(normalizedPath);
+            if (raceFolder.isPresent()) {
+                Folder folder = raceFolder.get();
+                Map<String, Object> response = new LinkedHashMap<>();
+                response.put("folderUuid", folder.getUuid().toString());
+                response.put("galleryUrl", "/gallery/" + folder.getUuid());
+                response.put("message", "Folder already exists");
+                return ResponseEntity.ok(response);
+            }
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to create folder"));
         } catch (IOException e) {
             log.error("Failed to create folder: {}", normalizedPath, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

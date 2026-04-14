@@ -13,6 +13,10 @@ let processing = false;
 let totalSynced = 0;
 let totalFailed = 0;
 
+// Track recently synced folders to prevent duplicate sync from watcher + route
+const recentFolderSyncs = new Map(); // relativePath -> timestamp
+const FOLDER_DEDUP_TTL = 10000; // 10 seconds
+
 // Retry back-off schedule in milliseconds
 const RETRY_DELAYS = [1000, 3000, 9000];
 const MAX_ATTEMPTS = 3;
@@ -130,6 +134,14 @@ async function syncFile(absolutePath, relativePath) {
  * @returns {Promise<Object|null>} Server response or null on failure
  */
 async function syncFolder(relativePath) {
+  // Deduplicate: skip if this folder was synced very recently
+  const lastSync = recentFolderSyncs.get(relativePath);
+  if (lastSync && Date.now() - lastSync < FOLDER_DEDUP_TTL) {
+    console.log(`[sync] Skipping duplicate folder sync: ${relativePath}`);
+    return null;
+  }
+  recentFolderSyncs.set(relativePath, Date.now());
+
   try {
     const form = new FormData();
     form.append('relativePath', relativePath);
