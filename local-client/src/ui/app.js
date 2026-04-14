@@ -143,9 +143,10 @@
     try {
       foldersCache = await api('GET', '/folders');
       var html = '<div class="card"><div class="card-header">' +
-        '<h2 class="card-title">Photo Folders</h2></div>';
+        '<h2 class="card-title">Photo Folders</h2>' +
+        '<button class="btn btn-primary" id="createFolderBtn">+ New Folder</button></div>';
       if (foldersCache.length === 0) {
-        html += '<div class="empty-state"><p>No folders found. Drop photos into the watched directory.</p></div>';
+        html += '<div class="empty-state"><p>No folders found. Create one or drop photos into the watched directory.</p></div>';
       } else {
         foldersCache.forEach(function (f) {
           var name = f.relativePath === '.' ? '(root)' : escapeHtml(f.relativePath);
@@ -166,6 +167,11 @@
       html += '</div>';
       contentEl.innerHTML = html;
 
+      // Bind create folder button
+      document.getElementById('createFolderBtn').addEventListener('click', function () {
+        openCreateFolderModal();
+      });
+
       // Bind invite buttons
       contentEl.querySelectorAll('[data-folder-invite]').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -175,6 +181,41 @@
     } catch (err) {
       showError('Failed to load folders: ' + err.message);
     }
+  }
+
+  function openCreateFolderModal() {
+    var html = '<form id="createFolderForm">' +
+      '<div class="form-group"><label class="form-label">Folder Path *</label>' +
+      '<input class="form-input" name="folderPath" placeholder="e.g. 2024/Varsity_Football/Game1" required>' +
+      '<small class="text-secondary">Use forward slashes for nested folders</small></div>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'modalOverlay\').classList.remove(\'open\')">Cancel</button>' +
+        '<button type="submit" class="btn btn-primary">Create Folder</button>' +
+      '</div></form>';
+    openModal('New Folder', html);
+
+    document.getElementById('createFolderForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var form = e.target;
+      var folderPath = form.folderPath.value.trim();
+      if (!folderPath) return;
+      var btn = form.querySelector('[type="submit"]');
+      btn.disabled = true;
+      btn.textContent = 'Creating...';
+      api('POST', '/folders', { folderPath: folderPath })
+        .then(function (result) {
+          closeModal();
+          renderFolders();
+          if (result.galleryUrl) {
+            alert('Folder created and synced!\nGallery: ' + result.galleryUrl);
+          }
+        })
+        .catch(function (err) {
+          alert('Error: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'Create Folder';
+        });
+    });
   }
 
   function openFolderInviteModal(folderPath, galleryUrl) {

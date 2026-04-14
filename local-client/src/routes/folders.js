@@ -107,6 +107,55 @@ router.get('/folders', async (req, res) => {
   }
 });
 
+// POST /api/folders - Create a new folder in the watch directory
+router.post('/folders', async (req, res) => {
+  try {
+    const { folderPath } = req.body;
+    if (!folderPath || typeof folderPath !== 'string') {
+      return res.status(400).json({ error: 'folderPath is required' });
+    }
+
+    // Sanitize: no path traversal
+    const normalized = path.normalize(folderPath).replace(/^(\.\.[/\\])+/, '');
+    if (normalized.startsWith('/') || normalized.includes('..')) {
+      return res.status(400).json({ error: 'Invalid folder path' });
+    }
+
+    const watchDir = path.resolve(config.watchDir);
+    const fullPath = path.join(watchDir, normalized);
+
+    // Ensure it stays within the watch directory
+    if (!fullPath.startsWith(watchDir)) {
+      return res.status(400).json({ error: 'Invalid folder path' });
+    }
+
+    // Create the directory (recursive for nested paths like 2024/Football/Game1)
+    fs.mkdirSync(fullPath, { recursive: true });
+
+    // Sync folder to remote server
+    let galleryUrl = null;
+    try {
+      const result = await sync.syncFolder(normalized);
+      if (result && result.galleryUrl) {
+        galleryUrl = config.remote.url + result.galleryUrl;
+      }
+    } catch (syncErr) {
+      console.error('[folders] Remote sync failed:', syncErr.message);
+      // Folder is created locally even if remote sync fails
+    }
+
+    res.status(201).json({
+      relativePath: normalized,
+      fullPath,
+      galleryUrl,
+      message: 'Folder created' + (galleryUrl ? ' and synced' : ' locally (remote sync pending)'),
+    });
+  } catch (err) {
+    console.error('[folders] POST error:', err.message);
+    res.status(500).json({ error: 'Failed to create folder' });
+  }
+});
+
 // GET /api/sync-status - Sync queue and log status
 router.get('/sync-status', async (req, res) => {
   try {

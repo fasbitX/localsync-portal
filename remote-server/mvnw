@@ -1,0 +1,3 @@
+#!/bin/sh
+MAVEN_HOME="$HOME/.m2/wrapper/dists/apache-maven-3.9.6/apache-maven-3.9.6"
+exec "$MAVEN_HOME/bin/mvn" "$@"
