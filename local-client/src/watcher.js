@@ -88,6 +88,39 @@ function startWatcher(callbacks) {
     }
   });
 
+  // Debounce directory events to batch-detect parent vs. leaf directories.
+  // When mkdir -p creates 2026/Milton-Varsity-Baseball, chokidar fires addDir
+  // for both "2026" and "2026/Milton-Varsity-Baseball". We only want to sync
+  // the leaf directory, not the intermediate parent.
+  let pendingDirs = [];
+  let dirDebounceTimer = null;
+  const DIR_DEBOUNCE_MS = 800;
+
+  function flushPendingDirs() {
+    if (pendingDirs.length === 0) return;
+
+    // Filter out any directory that is a parent of another detected directory
+    const dirs = pendingDirs.slice();
+    pendingDirs = [];
+
+    const leafDirs = dirs.filter(function (dir) {
+      return !dirs.some(function (other) {
+        return other !== dir && other.startsWith(dir + '/');
+      });
+    });
+
+    const skipped = dirs.length - leafDirs.length;
+    if (skipped > 0) {
+      console.log(`[watcher] Skipped ${skipped} intermediate parent director${skipped === 1 ? 'y' : 'ies'}`);
+    }
+
+    leafDirs.forEach(function (relPath) {
+      if (callbacks && typeof callbacks.onDir === 'function') {
+        callbacks.onDir(relPath);
+      }
+    });
+  }
+
   watcher.on('addDir', (dirPath) => {
     const watchAbsolute = path.resolve(config.watchDir);
     // Skip the root watch directory itself
@@ -96,9 +129,9 @@ function startWatcher(callbacks) {
     const relPath = relativePath(dirPath);
     console.log(`[watcher] New directory detected: ${relPath}`);
 
-    if (callbacks && typeof callbacks.onDir === 'function') {
-      callbacks.onDir(relPath);
-    }
+    pendingDirs.push(relPath);
+    clearTimeout(dirDebounceTimer);
+    dirDebounceTimer = setTimeout(flushPendingDirs, DIR_DEBOUNCE_MS);
   });
 
   watcher.on('ready', () => {

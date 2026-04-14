@@ -132,6 +132,9 @@ router.post('/folders', async (req, res) => {
     // Create the directory (recursive for nested paths like 2024/Football/Game1)
     fs.mkdirSync(fullPath, { recursive: true });
 
+    // Mark this path + parents as synced so the watcher doesn't duplicate
+    sync.markSynced(normalized);
+
     // Sync folder to remote server
     let galleryUrl = null;
     try {

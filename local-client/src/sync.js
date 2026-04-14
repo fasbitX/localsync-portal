@@ -218,10 +218,24 @@ function getStatus() {
   };
 }
 
+/**
+ * Mark a folder path and all its parent paths as recently synced.
+ * Prevents the watcher from re-syncing intermediate directories
+ * when mkdir -p creates a nested path.
+ */
+function markSynced(relativePath) {
+  const parts = relativePath.split('/');
+  for (let i = 1; i <= parts.length; i++) {
+    const partial = parts.slice(0, i).join('/');
+    recentFolderSyncs.set(partial, Date.now());
+  }
+}
+
 module.exports = {
   syncFile,
   syncFolder,
   addToQueue,
   processQueue,
   getStatus,
+  markSynced,
 };
