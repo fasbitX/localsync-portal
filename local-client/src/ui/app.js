@@ -149,7 +149,8 @@
         html += '<div class="empty-state"><p>No folders found. Create one or drop photos into the watched directory.</p></div>';
       } else {
         foldersCache.forEach(function (f) {
-          var name = f.relativePath === '.' ? '(root)' : escapeHtml(f.relativePath);
+          var isRoot = f.relativePath === '.';
+          var name = isRoot ? '(root)' : escapeHtml(f.relativePath);
           html += '<div class="folder-item">' +
             '<div class="folder-info">' +
               '<span class="folder-icon">&#128193;</span>' +
@@ -160,7 +161,18 @@
           if (f.galleryUrl) {
             html += '<a href="' + escapeHtml(f.galleryUrl) + '" target="_blank" class="gallery-link">Gallery</a>';
           }
-          html += '<button class="btn btn-sm btn-primary" data-folder-invite="' + escapeHtml(f.relativePath) + '" data-gallery="' + escapeHtml(f.galleryUrl || '') + '">Send Invites</button>';
+          // Sub-folder button
+          html += '<button class="btn btn-sm btn-secondary" data-subfolder="' + escapeHtml(f.relativePath) + '">+ Sub-folder</button>';
+          // Rename button (not for root)
+          if (!isRoot) {
+            html += '<button class="btn btn-sm btn-secondary" data-rename="' + escapeHtml(f.relativePath) + '">Rename</button>';
+          }
+          // Invite button
+          html += '<button class="btn btn-sm btn-primary" data-folder-invite="' + escapeHtml(f.relativePath) + '" data-gallery="' + escapeHtml(f.galleryUrl || '') + '">Invites</button>';
+          // Delete button (not for root)
+          if (!isRoot) {
+            html += '<button class="btn btn-sm btn-danger" data-delete="' + escapeHtml(f.relativePath) + '" data-files="' + f.fileCount + '">Delete</button>';
+          }
           html += '</div></div>';
         });
       }
@@ -170,6 +182,27 @@
       // Bind create folder button
       document.getElementById('createFolderBtn').addEventListener('click', function () {
         openCreateFolderModal();
+      });
+
+      // Bind sub-folder buttons
+      contentEl.querySelectorAll('[data-subfolder]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          openSubFolderModal(btn.dataset.subfolder);
+        });
+      });
+
+      // Bind rename buttons
+      contentEl.querySelectorAll('[data-rename]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          openRenameFolderModal(btn.dataset.rename);
+        });
+      });
+
+      // Bind delete buttons
+      contentEl.querySelectorAll('[data-delete]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          openDeleteFolderModal(btn.dataset.delete, parseInt(btn.dataset.files, 10));
+        });
       });
 
       // Bind invite buttons
@@ -214,6 +247,135 @@
           alert('Error: ' + err.message);
           btn.disabled = false;
           btn.textContent = 'Create Folder';
+        });
+    });
+  }
+
+  function openSubFolderModal(parentPath) {
+    var parentDisplay = parentPath === '.' ? '(root)' : parentPath;
+    var html = '<form id="subFolderForm">' +
+      '<div class="form-group"><label class="form-label">Parent Folder</label>' +
+      '<input class="form-input" value="' + escapeHtml(parentDisplay) + '" readonly></div>' +
+      '<div class="form-group"><label class="form-label">Sub-folder Name *</label>' +
+      '<input class="form-input" name="subName" placeholder="e.g. Game1" required></div>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'modalOverlay\').classList.remove(\'open\')">Cancel</button>' +
+        '<button type="submit" class="btn btn-primary">Create Sub-folder</button>' +
+      '</div></form>';
+    openModal('New Sub-folder', html);
+
+    document.getElementById('subFolderForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var subName = e.target.subName.value.trim();
+      if (!subName) return;
+      var fullPath = parentPath === '.' ? subName : parentPath + '/' + subName;
+      var btn = e.target.querySelector('[type="submit"]');
+      btn.disabled = true;
+      btn.textContent = 'Creating...';
+      api('POST', '/folders', { folderPath: fullPath })
+        .then(function (result) {
+          closeModal();
+          renderFolders();
+          if (result.galleryUrl) {
+            alert('Sub-folder created and synced!\nGallery: ' + result.galleryUrl);
+          }
+        })
+        .catch(function (err) {
+          alert('Error: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'Create Sub-folder';
+        });
+    });
+  }
+
+  function openRenameFolderModal(folderPath) {
+    var currentName = folderPath.includes('/') ? folderPath.split('/').pop() : folderPath;
+    var parentDir = folderPath.includes('/') ? folderPath.substring(0, folderPath.lastIndexOf('/')) : '';
+    var html = '<form id="renameFolderForm">' +
+      '<div class="form-group"><label class="form-label">Current Path</label>' +
+      '<input class="form-input" value="' + escapeHtml(folderPath) + '" readonly></div>' +
+      '<div class="form-group"><label class="form-label">New Name *</label>' +
+      '<input class="form-input" name="newName" value="' + escapeHtml(currentName) + '" required></div>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'modalOverlay\').classList.remove(\'open\')">Cancel</button>' +
+        '<button type="submit" class="btn btn-primary">Rename</button>' +
+      '</div></form>';
+    openModal('Rename Folder', html);
+
+    document.getElementById('renameFolderForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var newName = e.target.newName.value.trim();
+      if (!newName) return;
+      var newPath = parentDir ? parentDir + '/' + newName : newName;
+      if (newPath === folderPath) { closeModal(); return; }
+      var btn = e.target.querySelector('[type="submit"]');
+      btn.disabled = true;
+      btn.textContent = 'Renaming...';
+      api('PUT', '/folders', { oldPath: folderPath, newPath: newPath })
+        .then(function () {
+          closeModal();
+          renderFolders();
+        })
+        .catch(function (err) {
+          alert('Error: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'Rename';
+        });
+    });
+  }
+
+  function openDeleteFolderModal(folderPath, fileCount) {
+    // Count sub-folders too
+    var subFolders = foldersCache.filter(function (f) {
+      return f.relativePath !== folderPath && f.relativePath.startsWith(folderPath + '/');
+    });
+    var totalFiles = fileCount;
+    subFolders.forEach(function (sf) { totalFiles += sf.fileCount; });
+
+    var warnings = [];
+    if (totalFiles > 0) {
+      warnings.push('<strong>' + totalFiles + ' image' + (totalFiles !== 1 ? 's' : '') + '</strong> will be permanently deleted from this machine');
+    }
+    if (subFolders.length > 0) {
+      warnings.push('<strong>' + subFolders.length + ' sub-folder' + (subFolders.length !== 1 ? 's' : '') + '</strong> will also be removed');
+    }
+    warnings.push('This does <strong>NOT</strong> delete photos from the remote server');
+    warnings.push('This action <strong>cannot be undone</strong>');
+
+    var html = '<div class="delete-warning">' +
+      '<div style="font-size:36px;text-align:center;margin-bottom:12px;">&#9888;</div>' +
+      '<p style="text-align:center;font-weight:600;margin-bottom:16px;">Delete "' + escapeHtml(folderPath) + '"?</p>' +
+      '<ul style="margin:0 0 20px 20px;line-height:1.8;">' +
+      warnings.map(function (w) { return '<li>' + w + '</li>'; }).join('') +
+      '</ul>' +
+      '<div class="form-group"><label class="form-label">Type the folder name to confirm:</label>' +
+      '<input class="form-input" id="deleteConfirmInput" placeholder="' + escapeHtml(folderPath) + '"></div>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'modalOverlay\').classList.remove(\'open\')">Cancel</button>' +
+        '<button type="button" class="btn btn-danger" id="confirmDeleteBtn" disabled>Delete Permanently</button>' +
+      '</div></div>';
+    openModal('Delete Folder', html);
+
+    var confirmInput = document.getElementById('deleteConfirmInput');
+    var deleteBtn = document.getElementById('confirmDeleteBtn');
+
+    confirmInput.addEventListener('input', function () {
+      deleteBtn.disabled = confirmInput.value.trim() !== folderPath;
+    });
+
+    deleteBtn.addEventListener('click', function () {
+      deleteBtn.disabled = true;
+      deleteBtn.textContent = 'Deleting...';
+      api('DELETE', '/folders', { folderPath: folderPath })
+        .then(function (result) {
+          closeModal();
+          renderFolders();
+          alert(result.message);
+        })
+        .catch(function (err) {
+          alert('Error: ' + err.message);
+          deleteBtn.disabled = false;
+          deleteBtn.textContent = 'Delete Permanently';
         });
     });
   }
