@@ -133,6 +133,7 @@
     if (!folderPath) return;
     var folderData = foldersCache.find(function (f) { return f.relativePath === folderPath; });
     switch (action) {
+      case 'upload': openUploadPhotosModal(folderPath); break;
       case 'subfolder': openSubFolderModal(folderPath); break;
       case 'invite': openFolderInviteModal(folderPath, folderData ? folderData.galleryUrl || '' : ''); break;
       case 'rename': openRenameFolderModal(folderPath); break;
@@ -356,6 +357,81 @@
     } catch (err) {
       showError('Failed to load folders: ' + err.message);
     }
+  }
+
+  function openUploadPhotosModal(folderPath) {
+    var encodedPath = folderPath.replace(/\//g, '--');
+    var html = '<form id="uploadPhotosForm" enctype="multipart/form-data">' +
+      '<div class="form-group"><label class="form-label">Folder</label>' +
+      '<input class="form-input" value="' + escapeHtml(folderPath) + '" readonly></div>' +
+      '<div class="form-group"><label class="form-label">Select Photos</label>' +
+      '<input class="form-input" type="file" name="photos" multiple accept=".jpg,.jpeg,.png,.tiff,.tif,.raw,.cr2,.nef,.arw" required>' +
+      '<small class="text-secondary">Supported: JPG, PNG, TIFF, RAW, CR2, NEF, ARW</small></div>' +
+      '<div id="uploadProgress" style="display:none;">' +
+        '<div style="background:var(--border);border-radius:4px;height:8px;margin:8px 0;">' +
+          '<div id="uploadBar" style="background:var(--primary);height:100%;border-radius:4px;width:0%;transition:width 0.3s;"></div>' +
+        '</div>' +
+        '<p class="text-secondary text-sm" id="uploadStatus">Uploading...</p>' +
+      '</div>' +
+      '<div class="form-actions">' +
+        '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'modalOverlay\').classList.remove(\'open\')">Cancel</button>' +
+        '<button type="submit" class="btn btn-primary">Upload</button>' +
+      '</div></form>';
+    openModal('Upload Photos', html);
+
+    document.getElementById('uploadPhotosForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var form = e.target;
+      var fileInput = form.querySelector('[name="photos"]');
+      var files = fileInput.files;
+      if (!files || files.length === 0) return;
+
+      var btn = form.querySelector('[type="submit"]');
+      btn.disabled = true;
+      btn.textContent = 'Uploading...';
+      var progressDiv = document.getElementById('uploadProgress');
+      var progressBar = document.getElementById('uploadBar');
+      var statusText = document.getElementById('uploadStatus');
+      progressDiv.style.display = 'block';
+
+      var formData = new FormData();
+      for (var i = 0; i < files.length; i++) {
+        formData.append('photos', files[i]);
+      }
+
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/folders/' + encodedPath + '/upload');
+
+      xhr.upload.addEventListener('progress', function (evt) {
+        if (evt.lengthComputable) {
+          var pct = Math.round((evt.loaded / evt.total) * 100);
+          progressBar.style.width = pct + '%';
+          statusText.textContent = 'Uploading... ' + pct + '%';
+        }
+      });
+
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          var result = JSON.parse(xhr.responseText);
+          closeModal();
+          renderFolders();
+          alert(result.uploaded + ' photo(s) uploaded to ' + folderPath + '.\nThe watcher will sync them to the remote server.');
+        } else {
+          var err = JSON.parse(xhr.responseText || '{}');
+          alert('Upload failed: ' + (err.error || xhr.statusText));
+          btn.disabled = false;
+          btn.textContent = 'Upload';
+        }
+      };
+
+      xhr.onerror = function () {
+        alert('Upload failed: network error');
+        btn.disabled = false;
+        btn.textContent = 'Upload';
+      };
+
+      xhr.send(formData);
+    });
   }
 
   function openCreateFolderModal() {

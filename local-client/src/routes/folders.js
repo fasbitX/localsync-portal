@@ -1,11 +1,41 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
 const config = require('../config');
 const { query } = require('../db');
 const sync = require('../sync');
 
 const router = express.Router();
+
+// Multer storage: save uploaded files into the correct subfolder of watchDir
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const folderPath = req.params.folderPath || '';
+    const watchDir = path.resolve(config.watchDir);
+    const dest = path.join(watchDir, folderPath);
+    if (!dest.startsWith(watchDir)) {
+      return cb(new Error('Invalid path'));
+    }
+    fs.mkdirSync(dest, { recursive: true });
+    cb(null, dest);
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.originalname);
+  }
+});
+const upload = multer({
+  storage: storage,
+  fileFilter: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowed = new Set(['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw']);
+    if (allowed.has(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed (' + ext + ')'));
+    }
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -156,6 +186,30 @@ router.post('/folders', async (req, res) => {
   } catch (err) {
     console.error('[folders] POST error:', err.message);
     res.status(500).json({ error: 'Failed to create folder' });
+  }
+});
+
+// POST /api/folders/:folderPath/upload - Upload photos to a folder
+// The folderPath param uses -- as separator (since / can't be in URL params)
+// e.g. POST /api/folders/2024--Milton-Varsity-Baseball/upload
+router.post('/folders/:folderPath/upload', upload.array('photos', 50), async (req, res) => {
+  try {
+    const folderPath = req.params.folderPath.replace(/--/g, '/');
+    const files = req.files || [];
+
+    if (files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    res.json({
+      uploaded: files.length,
+      folder: folderPath,
+      files: files.map(function (f) { return f.originalname; }),
+      message: files.length + ' photo(s) uploaded. The watcher will sync them automatically.',
+    });
+  } catch (err) {
+    console.error('[folders] Upload error:', err.message);
+    res.status(500).json({ error: err.message || 'Upload failed' });
   }
 });
 
