@@ -316,6 +316,88 @@
       var node = row.closest('.tree-node');
       showContextMenu(e.clientX, e.clientY, node.dataset.path);
     });
+
+    // Drag and drop: drag photos onto a folder row to upload
+    tree.addEventListener('dragover', function (e) {
+      var row = e.target.closest('.tree-row');
+      if (!row) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      // Clear previous highlights
+      tree.querySelectorAll('.tree-row--dragover').forEach(function (el) {
+        el.classList.remove('tree-row--dragover');
+      });
+      row.classList.add('tree-row--dragover');
+    });
+
+    tree.addEventListener('dragleave', function (e) {
+      var row = e.target.closest('.tree-row');
+      if (row) row.classList.remove('tree-row--dragover');
+    });
+
+    tree.addEventListener('drop', function (e) {
+      e.preventDefault();
+      tree.querySelectorAll('.tree-row--dragover').forEach(function (el) {
+        el.classList.remove('tree-row--dragover');
+      });
+      var row = e.target.closest('.tree-row');
+      if (!row) return;
+      var node = row.closest('.tree-node');
+      var folderPath = node.dataset.path;
+
+      var files = e.dataTransfer.files;
+      if (!files || files.length === 0) return;
+
+      // Filter to image files only
+      var allowed = ['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw'];
+      var imageFiles = [];
+      for (var i = 0; i < files.length; i++) {
+        var ext = files[i].name.substring(files[i].name.lastIndexOf('.')).toLowerCase();
+        if (allowed.indexOf(ext) !== -1) {
+          imageFiles.push(files[i]);
+        }
+      }
+
+      if (imageFiles.length === 0) {
+        alert('No supported image files found.\nSupported: ' + allowed.join(', '));
+        return;
+      }
+
+      // Upload with inline status on the row
+      var label = row.querySelector('.tree-label');
+      var originalText = label.textContent;
+      label.textContent = originalText + ' (uploading ' + imageFiles.length + '...)';
+      row.classList.add('tree-row--uploading');
+
+      var formData = new FormData();
+      for (var j = 0; j < imageFiles.length; j++) {
+        formData.append('photos', imageFiles[j]);
+      }
+
+      var encodedPath = folderPath.replace(/\//g, '--');
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/folders/' + encodedPath + '/upload');
+
+      xhr.onload = function () {
+        row.classList.remove('tree-row--uploading');
+        if (xhr.status >= 200 && xhr.status < 300) {
+          var result = JSON.parse(xhr.responseText);
+          label.textContent = originalText + ' (+' + result.uploaded + ')';
+          setTimeout(function () { renderFolders(); }, 1500);
+        } else {
+          label.textContent = originalText + ' (upload failed)';
+          setTimeout(function () { label.textContent = originalText; }, 3000);
+        }
+      };
+
+      xhr.onerror = function () {
+        row.classList.remove('tree-row--uploading');
+        label.textContent = originalText + ' (upload failed)';
+        setTimeout(function () { label.textContent = originalText; }, 3000);
+      };
+
+      xhr.send(formData);
+    });
   }
 
   function toggleNode(li) {

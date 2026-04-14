@@ -540,6 +540,22 @@ tbody tr:hover {
   opacity: 1;
 }
 
+/* Drag-and-drop states */
+.tree-row--dragover {
+  background: var(--primary-light);
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+}
+
+.tree-row--uploading {
+  opacity: 0.7;
+}
+
+.tree-row--uploading .tree-label {
+  color: var(--primary);
+  font-style: italic;
+}
+
 /* ---- Context Menu ----------------------------------------------------- */
 
 .context-menu {
