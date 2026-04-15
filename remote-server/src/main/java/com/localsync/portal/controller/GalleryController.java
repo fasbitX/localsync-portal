@@ -124,7 +124,7 @@ public class GalleryController {
                     .body(Map.of("error", "Gallery not found"));
         }
 
-        List<PhotoFile> photos = photoFileRepository.findAllByFolderIdAndVisibleTrue(folder.getId());
+        List<PhotoFile> photos = photoFileRepository.findAllByFolderIdAndVisibleTrueOrderByFilenameAsc(folder.getId());
 
         List<Map<String, Object>> photoList = photos.stream()
                 .map(photo -> {

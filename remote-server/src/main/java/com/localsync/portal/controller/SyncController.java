@@ -58,7 +58,7 @@ public class SyncController {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("relativePath", folder.getRelativePath());
 
-            List<PhotoFile> photos = photoFileRepository.findAllByFolderIdOrderByUploadedAtDesc(folder.getId());
+            List<PhotoFile> photos = photoFileRepository.findAllByFolderIdOrderByFilenameAsc(folder.getId());
             List<String> photoPaths = new ArrayList<>();
             for (PhotoFile photo : photos) {
                 photoPaths.add(photo.getRelativePath());

@@ -174,7 +174,7 @@ public class AdminController {
         }
 
         List<PhotoFile> photos = photoFileRepository
-                .findAllByFolderIdOrderByUploadedAtDesc(folderOpt.get().getId());
+                .findAllByFolderIdOrderByFilenameAsc(folderOpt.get().getId());
 
         List<Map<String, Object>> result = photos.stream()
                 .map(this::photoToMap)
