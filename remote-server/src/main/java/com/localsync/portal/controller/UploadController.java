@@ -175,6 +175,9 @@ public class UploadController {
                 return ResponseEntity.ok(response);
             }
 
+            // Ensure all ancestor folders exist in DB and on disk
+            ensureAncestorFolders(normalizedPath);
+
             // Create directory on disk
             storageService.createDirectory(normalizedPath);
 
@@ -221,8 +224,11 @@ public class UploadController {
 
     /**
      * Find an existing folder by relative path, or create a new one.
+     * Also ensures all ancestor folders exist in the DB.
      */
     private Folder findOrCreateFolder(String folderPath) throws IOException {
+        ensureAncestorFolders(folderPath);
+
         Optional<Folder> existing = folderRepository.findByRelativePath(folderPath);
         if (existing.isPresent()) {
             return existing.get();
@@ -238,6 +244,35 @@ public class UploadController {
         folder.setVisible(true);
         folder.setPhotoCount(0);
         return folderRepository.save(folder);
+    }
+
+    /**
+     * Ensure all ancestor folders exist in the DB and on disk for a given path.
+     * e.g. for "2024/Football/Game1", creates "2024" and "2024/Football" if missing.
+     */
+    private void ensureAncestorFolders(String folderPath) throws IOException {
+        String[] segments = folderPath.split("/");
+        if (segments.length <= 1) {
+            return;
+        }
+        StringBuilder ancestorPath = new StringBuilder();
+        for (int i = 0; i < segments.length - 1; i++) {
+            if (i > 0) {
+                ancestorPath.append("/");
+            }
+            ancestorPath.append(segments[i]);
+            String path = ancestorPath.toString();
+            if (folderRepository.findByRelativePath(path).isEmpty()) {
+                storageService.createDirectory(path);
+                Folder ancestor = new Folder();
+                ancestor.setRelativePath(path);
+                ancestor.setDisplayName(segments[i]);
+                ancestor.setVisible(true);
+                ancestor.setPhotoCount(0);
+                folderRepository.save(ancestor);
+                log.info("Created ancestor folder: {}", path);
+            }
+        }
     }
 
     /**
