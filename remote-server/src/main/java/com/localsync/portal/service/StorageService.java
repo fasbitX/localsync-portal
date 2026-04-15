@@ -130,6 +130,24 @@ public class StorageService {
     }
 
     /**
+     * Rename (move) a directory from one relative path to another.
+     * Idempotent: if the source directory does not exist, this is a no-op.
+     *
+     * @param oldRelativePath the current directory path relative to base
+     * @param newRelativePath the desired directory path relative to base
+     */
+    public void renameDirectory(String oldRelativePath, String newRelativePath) throws IOException {
+        Path oldPath = resolveAndValidate(oldRelativePath);
+        Path newPath = resolveAndValidate(newRelativePath);
+        if (!Files.exists(oldPath)) {
+            return; // idempotent
+        }
+        Files.createDirectories(newPath.getParent());
+        Files.move(oldPath, newPath);
+        log.info("Renamed directory: {} -> {}", oldRelativePath, newRelativePath);
+    }
+
+    /**
      * Resolve the relative path against the base directory and validate
      * that it does not escape outside the base directory (path traversal protection).
      */

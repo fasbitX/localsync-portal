@@ -17,6 +17,9 @@ let totalFailed = 0;
 const recentFolderSyncs = new Map(); // relativePath -> timestamp
 const FOLDER_DEDUP_TTL = 10000; // 10 seconds
 
+const recentDeletes = new Map();
+const DELETE_DEDUP_TTL = 10000;
+
 // Retry back-off schedule in milliseconds
 const RETRY_DELAYS = [1000, 3000, 9000];
 const MAX_ATTEMPTS = 3;
@@ -231,9 +234,80 @@ function markSynced(relativePath) {
   }
 }
 
+async function syncDeletePhoto(relativePath) {
+  var key = 'photo:' + relativePath;
+  if (recentDeletes.has(key) && Date.now() - recentDeletes.get(key) < DELETE_DEDUP_TTL) {
+    console.log('[sync] Skipping duplicate photo delete: ' + relativePath);
+    return null;
+  }
+  recentDeletes.set(key, Date.now());
+
+  try {
+    var response = await axios.delete(config.remote.url + '/api/photos', {
+      headers: apiHeaders(),
+      params: { relativePath: relativePath },
+      timeout: 15000,
+    });
+    console.log('[sync] Remote photo deleted: ' + relativePath);
+    return response.data;
+  } catch (err) {
+    var errorMsg = err.response
+      ? 'HTTP ' + err.response.status + ': ' + JSON.stringify(err.response.data)
+      : err.message;
+    console.error('[sync] Remote photo delete failed for ' + relativePath + ': ' + errorMsg);
+    return null;
+  }
+}
+
+async function syncDeleteFolder(relativePath) {
+  var key = 'folder:' + relativePath;
+  if (recentDeletes.has(key) && Date.now() - recentDeletes.get(key) < DELETE_DEDUP_TTL) {
+    console.log('[sync] Skipping duplicate folder delete: ' + relativePath);
+    return null;
+  }
+  recentDeletes.set(key, Date.now());
+
+  try {
+    var response = await axios.delete(config.remote.url + '/api/folders', {
+      headers: apiHeaders(),
+      params: { relativePath: relativePath },
+      timeout: 15000,
+    });
+    console.log('[sync] Remote folder deleted: ' + relativePath);
+    return response.data;
+  } catch (err) {
+    var errorMsg = err.response
+      ? 'HTTP ' + err.response.status + ': ' + JSON.stringify(err.response.data)
+      : err.message;
+    console.error('[sync] Remote folder delete failed for ' + relativePath + ': ' + errorMsg);
+    return null;
+  }
+}
+
+async function syncRenameFolder(oldPath, newPath) {
+  try {
+    var response = await axios.put(config.remote.url + '/api/folders/rename', null, {
+      headers: apiHeaders(),
+      params: { oldPath: oldPath, newPath: newPath },
+      timeout: 15000,
+    });
+    console.log('[sync] Remote folder renamed: ' + oldPath + ' -> ' + newPath);
+    return response.data;
+  } catch (err) {
+    var errorMsg = err.response
+      ? 'HTTP ' + err.response.status + ': ' + JSON.stringify(err.response.data)
+      : err.message;
+    console.error('[sync] Remote folder rename failed for ' + oldPath + ': ' + errorMsg);
+    return null;
+  }
+}
+
 module.exports = {
   syncFile,
   syncFolder,
+  syncDeletePhoto,
+  syncDeleteFolder,
+  syncRenameFolder,
   addToQueue,
   processQueue,
   getStatus,

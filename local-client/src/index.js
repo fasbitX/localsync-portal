@@ -54,6 +54,16 @@ function boot() {
         console.error(`[main] Folder sync error for ${relativePath}:`, err.message);
       });
     },
+    onFileDelete: (relativePath) => {
+      sync.syncDeletePhoto(relativePath).catch((err) => {
+        console.error(`[main] Remote photo delete error for ${relativePath}:`, err.message);
+      });
+    },
+    onDirDelete: (relativePath) => {
+      sync.syncDeleteFolder(relativePath).catch((err) => {
+        console.error(`[main] Remote folder delete error for ${relativePath}:`, err.message);
+      });
+    },
   });
 }
 

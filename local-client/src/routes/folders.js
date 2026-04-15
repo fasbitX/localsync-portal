@@ -341,6 +341,11 @@ router.put('/folders', async (req, res) => {
       [fullOld, fullNew, normalizedOld, normalizedNew, normalizedOld + '%']
     );
 
+    // Propagate rename to remote server
+    sync.syncRenameFolder(normalizedOld, normalizedNew).catch(function (err) {
+      console.error('[folders] Remote folder rename failed:', err.message);
+    });
+
     res.json({ oldPath: normalizedOld, newPath: normalizedNew, message: 'Folder renamed' });
   } catch (err) {
     console.error('[folders] PUT error:', err.message);
@@ -396,6 +401,11 @@ router.delete('/folders', async (req, res) => {
       [normalized + '%']
     );
 
+    // Propagate deletion to remote server
+    sync.syncDeleteFolder(normalized).catch(function (err) {
+      console.error('[folders] Remote folder delete failed:', err.message);
+    });
+
     res.json({
       relativePath: normalized,
       deletedFiles,
@@ -438,6 +448,11 @@ router.delete('/folders/:folderPath/photos/:photoName', async (req, res) => {
       `DELETE FROM sync_log WHERE relative_path = $1`,
       [relativePath]
     );
+
+    // Propagate deletion to remote server
+    sync.syncDeletePhoto(relativePath).catch(function (err) {
+      console.error('[folders] Remote photo delete failed:', err.message);
+    });
 
     res.json({ message: 'Photo deleted', relativePath });
   } catch (err) {

@@ -134,6 +134,40 @@ function startWatcher(callbacks) {
     dirDebounceTimer = setTimeout(flushPendingDirs, DIR_DEBOUNCE_MS);
   });
 
+  // File deleted: clean sync_log and notify
+  watcher.on('unlink', async (filePath) => {
+    if (!isImageFile(filePath)) return;
+
+    const relPath = relativePath(filePath);
+    console.log(`[watcher] File deleted: ${relPath}`);
+
+    try {
+      await query(
+        'DELETE FROM sync_log WHERE file_path = $1',
+        [filePath]
+      );
+    } catch (err) {
+      console.error(`[watcher] sync_log cleanup error for ${relPath}:`, err.message);
+    }
+
+    if (callbacks.onFileDelete) {
+      callbacks.onFileDelete(relPath);
+    }
+  });
+
+  // Directory deleted: notify
+  watcher.on('unlinkDir', (dirPath) => {
+    const watchAbsolute = path.resolve(config.watchDir);
+    if (path.resolve(dirPath) === watchAbsolute) return;
+
+    const relPath = relativePath(dirPath);
+    console.log(`[watcher] Directory deleted: ${relPath}`);
+
+    if (callbacks.onDirDelete) {
+      callbacks.onDirDelete(relPath);
+    }
+  });
+
   watcher.on('ready', () => {
     console.log('[watcher] Initial scan complete. Watching for changes...');
   });
