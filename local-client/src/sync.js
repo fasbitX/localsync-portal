@@ -302,6 +302,129 @@ async function syncRenameFolder(oldPath, newPath) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Reconciliation – force remote to mirror local filesystem on startup
+// ---------------------------------------------------------------------------
+
+const IMAGE_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw',
+]);
+
+/**
+ * Scan the local watch directory and return Sets of relative paths for all
+ * folders and image files found on disk.
+ *
+ * @returns {{ folders: Set<string>, photos: Set<string> }}
+ */
+function scanLocalState() {
+  const watchDir = path.resolve(config.watchDir);
+  const folders = new Set();
+  const photos = new Set();
+
+  function scan(dir) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      const full = path.join(dir, entry.name);
+      const rel = path.relative(watchDir, full).replace(/\\/g, '/');
+      if (entry.isDirectory()) {
+        folders.add(rel);
+        scan(full);
+      } else if (entry.isFile() && IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        photos.add(rel);
+      }
+    }
+  }
+
+  scan(watchDir);
+  return { folders, photos };
+}
+
+/**
+ * Reconcile remote state with the local filesystem.
+ *
+ * - Remote folders not present locally are deleted from the remote.
+ * - Remote photos not present locally are deleted from the remote.
+ * - Local folders not present on remote are created.
+ * - Local photos not present on remote are queued for upload.
+ */
+async function reconcile() {
+  console.log('[sync] Reconciliation starting...');
+
+  let remoteState;
+  try {
+    const response = await axios.get(config.remote.url + '/api/sync/state', {
+      headers: apiHeaders(),
+      timeout: 30000,
+    });
+    remoteState = response.data;
+  } catch (err) {
+    console.error('[sync] Reconciliation failed - cannot reach remote:', err.message);
+    return;
+  }
+
+  const local = scanLocalState();
+  let foldersRemoved = 0;
+  let photosRemoved = 0;
+  let photosQueued = 0;
+
+  // Delete remote folders not in local
+  for (const rf of remoteState.folders) {
+    if (!local.folders.has(rf.relativePath)) {
+      console.log('[sync] Removing stale remote folder: ' + rf.relativePath);
+      await syncDeleteFolder(rf.relativePath);
+      foldersRemoved++;
+    } else {
+      // Check photos in this folder
+      for (const photoPath of rf.photos) {
+        if (!local.photos.has(photoPath)) {
+          console.log('[sync] Removing stale remote photo: ' + photoPath);
+          await syncDeletePhoto(photoPath);
+          photosRemoved++;
+        }
+      }
+    }
+  }
+
+  // Create local folders not in remote
+  const remoteFolderPaths = new Set(remoteState.folders.map(function (f) { return f.relativePath; }));
+  for (const localFolder of local.folders) {
+    if (!remoteFolderPaths.has(localFolder)) {
+      console.log('[sync] Creating missing remote folder: ' + localFolder);
+      await syncFolder(localFolder);
+    }
+  }
+
+  // Queue local photos not in remote
+  const remotePhotoPaths = new Set();
+  for (const rf of remoteState.folders) {
+    for (const p of rf.photos) {
+      remotePhotoPaths.add(p);
+    }
+  }
+  const watchDir = path.resolve(config.watchDir);
+  for (const localPhoto of local.photos) {
+    if (!remotePhotoPaths.has(localPhoto)) {
+      console.log('[sync] Queuing missing photo for upload: ' + localPhoto);
+      const absPath = path.join(watchDir, localPhoto);
+      addToQueue(absPath, localPhoto);
+      photosQueued++;
+    }
+  }
+
+  console.log(
+    '[sync] Reconciliation complete: ' +
+      foldersRemoved + ' folders removed, ' +
+      photosRemoved + ' photos removed, ' +
+      photosQueued + ' photos queued for upload'
+  );
+}
+
 module.exports = {
   syncFile,
   syncFolder,
@@ -312,4 +435,5 @@ module.exports = {
   processQueue,
   getStatus,
   markSynced,
+  reconcile,
 };

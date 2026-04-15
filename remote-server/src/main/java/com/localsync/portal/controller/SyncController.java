@@ -10,12 +10,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -39,6 +42,34 @@ public class SyncController {
         this.folderRepository = folderRepository;
         this.photoFileRepository = photoFileRepository;
         this.storageService = storageService;
+    }
+
+    /**
+     * GET /api/sync/state
+     * Returns the complete state of all folders and their photos on the remote,
+     * so the local client can compare and reconcile.
+     */
+    @GetMapping("/sync/state")
+    public ResponseEntity<Map<String, Object>> getSyncState() {
+        List<Folder> allFolders = folderRepository.findAllByOrderByCreatedAtDesc();
+
+        List<Map<String, Object>> folderList = new ArrayList<>();
+        for (Folder folder : allFolders) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("relativePath", folder.getRelativePath());
+
+            List<PhotoFile> photos = photoFileRepository.findAllByFolderIdOrderByUploadedAtDesc(folder.getId());
+            List<String> photoPaths = new ArrayList<>();
+            for (PhotoFile photo : photos) {
+                photoPaths.add(photo.getRelativePath());
+            }
+            entry.put("photos", photoPaths);
+            folderList.add(entry);
+        }
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("folders", folderList);
+        return ResponseEntity.ok(response);
     }
 
     /**

@@ -65,6 +65,11 @@ function boot() {
       });
     },
   });
+
+  // Run reconciliation to sync remote with local state
+  sync.reconcile().catch((err) => {
+    console.error('[main] Reconciliation error:', err.message);
+  });
 }
 
 // ---------------------------------------------------------------------------

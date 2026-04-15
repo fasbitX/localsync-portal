@@ -1,8 +1,8 @@
 /**
  * LocalSync Portal - Admin Dashboard Frontend
  *
- * Handles login, folder listing, photo listing, visibility toggles,
- * and deletion with confirmation dialogs.
+ * Handles login, folder listing, and photo listing.
+ * This dashboard is display-only; no modification capabilities.
  */
 (function () {
     "use strict";
@@ -10,7 +10,6 @@
     // --- State ---
     var folders = [];
     var selectedFolderId = null;
-    var confirmCallback = null;
 
     // --- DOM refs ---
     var loginView = document.getElementById("login-view");
@@ -24,13 +23,7 @@
     var detailTitle = document.getElementById("detail-title");
     var detailMeta = document.getElementById("detail-meta");
     var detailGalleryLink = document.getElementById("detail-gallery-link");
-    var toggleFolderVisBtn = document.getElementById("toggle-folder-vis-btn");
-    var deleteFolderBtn = document.getElementById("delete-folder-btn");
     var photoListEl = document.getElementById("photo-list");
-    var confirmOverlay = document.getElementById("confirm-overlay");
-    var confirmMessage = document.getElementById("confirm-message");
-    var confirmCancel = document.getElementById("confirm-cancel");
-    var confirmOk = document.getElementById("confirm-ok");
 
     // --- Init: try to load folders (if session is valid we get data, otherwise 401) ---
     async function init() {
@@ -188,56 +181,9 @@
             '<a href="' + folder.galleryUrl + '" target="_blank">Gallery link: ' +
             window.location.origin + folder.galleryUrl + '</a>';
 
-        toggleFolderVisBtn.textContent = folder.visible ? "Hide" : "Show";
-
         // Load photos
         await loadPhotos(folderId);
     }
-
-    // --- Toggle folder visibility ---
-    toggleFolderVisBtn.addEventListener("click", async function () {
-        if (!selectedFolderId) return;
-        try {
-            var res = await fetch("/api/admin/folders/" + selectedFolderId + "/visibility", {
-                method: "PATCH"
-            });
-            if (res.ok) {
-                var updated = await res.json();
-                // Update local state
-                var idx = folders.findIndex(function (f) { return f.id === updated.id; });
-                if (idx >= 0) folders[idx] = updated;
-                renderFolderList();
-                toggleFolderVisBtn.textContent = updated.visible ? "Hide" : "Show";
-            }
-        } catch (e) {
-            console.error("Failed to toggle folder visibility", e);
-        }
-    });
-
-    // --- Delete folder ---
-    deleteFolderBtn.addEventListener("click", function () {
-        if (!selectedFolderId) return;
-        var folder = folders.find(function (f) { return f.id === selectedFolderId; });
-        var name = folder ? (folder.displayName || folder.relativePath) : "this folder";
-        showConfirm(
-            "Delete \"" + name + "\" and all its photos? This cannot be undone.",
-            async function () {
-                try {
-                    var res = await fetch("/api/admin/folders/" + selectedFolderId, {
-                        method: "DELETE"
-                    });
-                    if (res.ok) {
-                        selectedFolderId = null;
-                        folderDetailEl.style.display = "none";
-                        noSelectionEl.style.display = "block";
-                        await loadFolders();
-                    }
-                } catch (e) {
-                    console.error("Failed to delete folder", e);
-                }
-            }
-        );
-    });
 
     // --- Photos ---
     async function loadPhotos(folderId) {
@@ -283,93 +229,12 @@
             nameEl.title = photo.filename;
             nameEl.textContent = photo.filename;
 
-            var actions = document.createElement("div");
-            actions.className = "photo-item-actions";
-
-            var visBtn = document.createElement("button");
-            visBtn.className = "btn btn-sm btn-outline";
-            visBtn.textContent = photo.visible ? "Hide" : "Show";
-            visBtn.addEventListener("click", function () {
-                togglePhotoVisibility(photo.id);
-            });
-
-            var delBtn = document.createElement("button");
-            delBtn.className = "btn btn-sm btn-danger";
-            delBtn.textContent = "Delete";
-            delBtn.addEventListener("click", function () {
-                showConfirm(
-                    "Delete photo \"" + photo.filename + "\"? This cannot be undone.",
-                    function () { deletePhoto(photo.id); }
-                );
-            });
-
-            actions.appendChild(visBtn);
-            actions.appendChild(delBtn);
             info.appendChild(nameEl);
-            info.appendChild(actions);
             item.appendChild(img);
             item.appendChild(info);
             photoListEl.appendChild(item);
         });
     }
-
-    async function togglePhotoVisibility(photoId) {
-        try {
-            var res = await fetch("/api/admin/photos/" + photoId + "/visibility", {
-                method: "PATCH"
-            });
-            if (res.ok && selectedFolderId) {
-                await loadPhotos(selectedFolderId);
-            }
-        } catch (e) {
-            console.error("Failed to toggle photo visibility", e);
-        }
-    }
-
-    async function deletePhoto(photoId) {
-        try {
-            var res = await fetch("/api/admin/photos/" + photoId, {
-                method: "DELETE"
-            });
-            if (res.ok) {
-                // Refresh folders (photo count changed) and photos
-                await loadFolders();
-                if (selectedFolderId) {
-                    // Re-select to update detail header
-                    await selectFolder(selectedFolderId);
-                }
-            }
-        } catch (e) {
-            console.error("Failed to delete photo", e);
-        }
-    }
-
-    // --- Confirm Dialog ---
-    function showConfirm(message, onConfirm) {
-        confirmMessage.textContent = message;
-        confirmCallback = onConfirm;
-        confirmOverlay.style.display = "flex";
-    }
-
-    function hideConfirm() {
-        confirmOverlay.style.display = "none";
-        confirmCallback = null;
-    }
-
-    confirmCancel.addEventListener("click", hideConfirm);
-
-    confirmOk.addEventListener("click", function () {
-        if (confirmCallback) {
-            confirmCallback();
-        }
-        hideConfirm();
-    });
-
-    confirmOverlay.addEventListener("click", function (e) {
-        if (e.target === confirmOverlay) {
-            hideConfirm();
-        }
-    });
 
     // --- Start ---
     init();

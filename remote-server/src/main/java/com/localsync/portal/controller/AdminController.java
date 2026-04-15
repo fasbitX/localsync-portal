@@ -6,7 +6,6 @@ import com.localsync.portal.model.PhotoFile;
 import com.localsync.portal.repository.AdminRepository;
 import com.localsync.portal.repository.FolderRepository;
 import com.localsync.portal.repository.PhotoFileRepository;
-import com.localsync.portal.service.StorageService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
@@ -19,16 +18,12 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,8 +31,9 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Admin dashboard endpoints: authentication, folder/photo management.
+ * Admin dashboard endpoints: authentication and read-only folder/photo listing.
  * Login is session-based using BCrypt for password verification.
+ * This controller is display-only; no modification capabilities.
  */
 @RestController
 public class AdminController {
@@ -47,18 +43,15 @@ public class AdminController {
     private final AdminRepository adminRepository;
     private final FolderRepository folderRepository;
     private final PhotoFileRepository photoFileRepository;
-    private final StorageService storageService;
     private final PasswordEncoder passwordEncoder;
 
     public AdminController(AdminRepository adminRepository,
                            FolderRepository folderRepository,
                            PhotoFileRepository photoFileRepository,
-                           StorageService storageService,
                            PasswordEncoder passwordEncoder) {
         this.adminRepository = adminRepository;
         this.folderRepository = folderRepository;
         this.photoFileRepository = photoFileRepository;
-        this.storageService = storageService;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -169,60 +162,6 @@ public class AdminController {
     }
 
     /**
-     * DELETE /api/admin/folders/{id}
-     * Delete a folder and all its photos from DB and disk.
-     */
-    @DeleteMapping("/api/admin/folders/{id}")
-    @Transactional
-    public ResponseEntity<Map<String, Object>> deleteFolder(@PathVariable Long id) {
-        Optional<Folder> folderOpt = folderRepository.findById(id);
-        if (folderOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Folder not found"));
-        }
-
-        Folder folder = folderOpt.get();
-        String relativePath = folder.getRelativePath();
-
-        // Delete folder record (cascades to photos in DB)
-        folderRepository.delete(folder);
-
-        // Delete directory and all files from disk
-        try {
-            storageService.deleteDirectory(relativePath);
-        } catch (IOException e) {
-            log.error("Failed to delete folder directory: {}", relativePath, e);
-            // DB deletion already committed; log the disk error but don't fail the response
-        }
-
-        log.info("Admin deleted folder: {} (id={})", relativePath, id);
-
-        return ResponseEntity.ok(Map.of("message", "Folder deleted"));
-    }
-
-    /**
-     * PATCH /api/admin/folders/{id}/visibility
-     * Toggle the visible flag on a folder.
-     */
-    @PatchMapping("/api/admin/folders/{id}/visibility")
-    @Transactional
-    public ResponseEntity<Map<String, Object>> toggleFolderVisibility(@PathVariable Long id) {
-        Optional<Folder> folderOpt = folderRepository.findById(id);
-        if (folderOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Folder not found"));
-        }
-
-        Folder folder = folderOpt.get();
-        folder.setVisible(!folder.getVisible());
-        folderRepository.save(folder);
-
-        log.info("Admin toggled folder visibility: id={}, visible={}", id, folder.getVisible());
-
-        return ResponseEntity.ok(folderToMap(folder));
-    }
-
-    /**
      * GET /api/admin/folders/{id}/photos
      * List all photos in a folder (including hidden ones).
      */
@@ -242,69 +181,6 @@ public class AdminController {
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(result);
-    }
-
-    // -------------------------------------------------------------------------
-    // Photo Management (Admin API)
-    // -------------------------------------------------------------------------
-
-    /**
-     * DELETE /api/admin/photos/{id}
-     * Delete a single photo from DB and disk, update folder count.
-     */
-    @DeleteMapping("/api/admin/photos/{id}")
-    @Transactional
-    public ResponseEntity<Map<String, Object>> deletePhoto(@PathVariable Long id) {
-        Optional<PhotoFile> photoOpt = photoFileRepository.findById(id);
-        if (photoOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Photo not found"));
-        }
-
-        PhotoFile photo = photoOpt.get();
-        Folder folder = photo.getFolder();
-        String relativePath = photo.getRelativePath();
-
-        // Delete from DB
-        photoFileRepository.delete(photo);
-
-        // Update folder photo count
-        int count = photoFileRepository.countByFolderId(folder.getId());
-        folder.setPhotoCount(count);
-        folderRepository.save(folder);
-
-        // Delete file from disk
-        try {
-            storageService.deleteFile(relativePath);
-        } catch (IOException e) {
-            log.error("Failed to delete photo file: {}", relativePath, e);
-        }
-
-        log.info("Admin deleted photo: {} (id={})", relativePath, id);
-
-        return ResponseEntity.ok(Map.of("message", "Photo deleted"));
-    }
-
-    /**
-     * PATCH /api/admin/photos/{id}/visibility
-     * Toggle the visible flag on a photo.
-     */
-    @PatchMapping("/api/admin/photos/{id}/visibility")
-    @Transactional
-    public ResponseEntity<Map<String, Object>> togglePhotoVisibility(@PathVariable Long id) {
-        Optional<PhotoFile> photoOpt = photoFileRepository.findById(id);
-        if (photoOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Photo not found"));
-        }
-
-        PhotoFile photo = photoOpt.get();
-        photo.setVisible(!photo.getVisible());
-        photoFileRepository.save(photo);
-
-        log.info("Admin toggled photo visibility: id={}, visible={}", id, photo.getVisible());
-
-        return ResponseEntity.ok(photoToMap(photo));
     }
 
     // -------------------------------------------------------------------------

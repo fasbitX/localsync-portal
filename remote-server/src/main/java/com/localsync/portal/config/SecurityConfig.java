@@ -68,7 +68,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/gallery/**").permitAll()
 
                 // API endpoints (key-based auth handled by ApiKeyFilter)
-                .requestMatchers("/api/upload", "/api/folders", "/api/folders/rename", "/api/photos").authenticated()
+                .requestMatchers("/api/upload", "/api/folders", "/api/folders/rename", "/api/photos", "/api/sync/**").authenticated()
 
                 // Admin API and pages require ADMIN role
                 .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
