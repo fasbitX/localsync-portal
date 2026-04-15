@@ -507,22 +507,27 @@
       var files = e.dataTransfer.files;
       if (!files || files.length === 0) return;
 
-      // Filter to image files only
-      var allowed = ['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw'];
+      // Filter to image and zip files
+      var allowed = ['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw', '.zip'];
       var imageFiles = [];
+      var zipFiles = [];
       for (var i = 0; i < files.length; i++) {
         var ext = files[i].name.substring(files[i].name.lastIndexOf('.')).toLowerCase();
-        if (allowed.indexOf(ext) !== -1) {
+        if (ext === '.zip') {
+          zipFiles.push(files[i]);
+        } else if (allowed.indexOf(ext) !== -1) {
           imageFiles.push(files[i]);
         }
       }
 
-      if (imageFiles.length === 0) {
-        alert('No supported image files found.\nSupported: ' + allowed.join(', '));
+      if (imageFiles.length === 0 && zipFiles.length === 0) {
+        alert('No supported files found.\nSupported: ' + allowed.join(', '));
         return;
       }
 
-      checkAndResolve(folderPath, imageFiles, function (filesToUpload) {
+      // Duplicate-check image files; zips are handled server-side during extraction
+      checkAndResolve(folderPath, imageFiles, function (resolvedImages) {
+        var filesToUpload = resolvedImages.concat(zipFiles);
         if (filesToUpload.length === 0) return;
 
         var label = row.querySelector('.tree-label');
@@ -823,7 +828,7 @@
       '<div class="form-group"><label class="form-label">Folder</label>' +
       '<input class="form-input" value="' + escapeHtml(folderPath) + '" readonly></div>' +
       '<div class="form-group"><label class="form-label">Select Photos</label>' +
-      '<input class="form-input" type="file" name="photos" multiple accept=".jpg,.jpeg,.png,.tiff,.tif,.raw,.cr2,.nef,.arw" required>' +
+      '<input class="form-input" type="file" name="photos" multiple accept=".jpg,.jpeg,.png,.tiff,.tif,.raw,.cr2,.nef,.arw,.zip" required>' +
       '<small class="text-secondary">Supported: JPG, PNG, TIFF, RAW, CR2, NEF, ARW</small></div>' +
       '<div id="uploadProgress" style="display:none;">' +
         '<div style="background:var(--border);border-radius:4px;height:8px;margin:8px 0;">' +
@@ -844,14 +849,21 @@
       var files = fileInput.files;
       if (!files || files.length === 0) return;
 
-      var selectedFiles = [];
+      var selectedImages = [];
+      var selectedZips = [];
       for (var i = 0; i < files.length; i++) {
-        selectedFiles.push(files[i]);
+        var ext = files[i].name.substring(files[i].name.lastIndexOf('.')).toLowerCase();
+        if (ext === '.zip') {
+          selectedZips.push(files[i]);
+        } else {
+          selectedImages.push(files[i]);
+        }
       }
 
       closeModal();
 
-      checkAndResolve(folderPath, selectedFiles, function (filesToUpload) {
+      checkAndResolve(folderPath, selectedImages, function (resolvedImages) {
+        var filesToUpload = resolvedImages.concat(selectedZips);
         if (filesToUpload.length === 0) return;
 
         // Re-open a progress modal for the upload

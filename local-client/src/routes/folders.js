@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const AdmZip = require('adm-zip');
 const exifr = require('exifr');
 const config = require('../config');
 const { query } = require('../db');
@@ -29,11 +30,11 @@ const upload = multer({
   storage: storage,
   fileFilter: function (req, file, cb) {
     const ext = path.extname(file.originalname).toLowerCase();
-    const allowed = new Set(['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw']);
+    const allowed = new Set(['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw', '.zip']);
     if (allowed.has(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files are allowed (' + ext + ')'));
+      cb(new Error('Only image or zip files are allowed (' + ext + ')'));
     }
   }
 });
@@ -305,23 +306,85 @@ router.post('/folders/:folderPath/check-duplicates', (req, res) => {
   res.json({ duplicates, suggestions });
 });
 
-// POST /api/folders/:folderPath/upload - Upload photos to a folder
+/**
+ * Generate a unique filename in a directory by appending (1), (2), etc.
+ */
+function uniqueName(dir, name) {
+  if (!fs.existsSync(path.join(dir, name))) return name;
+  const ext = path.extname(name);
+  const base = path.basename(name, ext);
+  let counter = 1;
+  let candidate;
+  do {
+    candidate = base + ' (' + counter + ')' + ext;
+    counter++;
+  } while (fs.existsSync(path.join(dir, candidate)));
+  return candidate;
+}
+
+// POST /api/folders/:folderPath/upload - Upload photos (and zips) to a folder
 // The folderPath param uses -- as separator (since / can't be in URL params)
 // e.g. POST /api/folders/2024--Milton-Varsity-Baseball/upload
 router.post('/folders/:folderPath/upload', upload.array('photos', 50), async (req, res) => {
   try {
     const folderPath = req.params.folderPath.replace(/--/g, '/');
+    const watchDir = path.resolve(config.watchDir);
+    const dest = path.join(watchDir, folderPath);
     const files = req.files || [];
 
     if (files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
+    let photoCount = 0;
+    let extractedCount = 0;
+    const savedFiles = [];
+
+    for (const file of files) {
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (ext === '.zip') {
+        // Extract images from zip, then delete the zip
+        const zipPath = path.join(dest, file.originalname);
+        try {
+          const zip = new AdmZip(zipPath);
+          const entries = zip.getEntries();
+          for (const entry of entries) {
+            if (entry.isDirectory) continue;
+            const entryName = path.basename(entry.entryName);
+            if (entryName.startsWith('.')) continue;
+            const entryExt = path.extname(entryName).toLowerCase();
+            if (!IMAGE_EXTENSIONS.has(entryExt)) continue;
+
+            const safeName = uniqueName(dest, entryName);
+            fs.writeFileSync(path.join(dest, safeName), entry.getData());
+            savedFiles.push(safeName);
+            extractedCount++;
+          }
+        } catch (zipErr) {
+          console.error('[folders] Zip extraction error:', zipErr.message);
+        }
+        // Remove the zip file
+        try { fs.unlinkSync(zipPath); } catch (_) { /* ignore */ }
+      } else {
+        savedFiles.push(file.originalname);
+        photoCount++;
+      }
+    }
+
+    const total = photoCount + extractedCount;
+    let message = total + ' photo(s) uploaded.';
+    if (extractedCount > 0) {
+      message = photoCount + ' photo(s) + ' + extractedCount + ' extracted from zip.';
+    }
+    message += ' The watcher will sync them automatically.';
+
     res.json({
-      uploaded: files.length,
+      uploaded: total,
+      photoCount,
+      extractedCount,
       folder: folderPath,
-      files: files.map(function (f) { return f.originalname; }),
-      message: files.length + ' photo(s) uploaded. The watcher will sync them automatically.',
+      files: savedFiles,
+      message,
     });
   } catch (err) {
     console.error('[folders] Upload error:', err.message);
