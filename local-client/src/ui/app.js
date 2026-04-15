@@ -100,6 +100,135 @@
   });
 
   // -----------------------------------------------------------------------
+  // Duplicate file detection
+  // -----------------------------------------------------------------------
+
+  /**
+   * Check a list of Files against the target folder for name collisions.
+   * Calls back with { duplicates: [...], suggestions: { orig: newName } }.
+   */
+  function checkDuplicates(folderPath, files, callback) {
+    var encodedPath = folderPath.replace(/\//g, '--');
+    var filenames = [];
+    for (var i = 0; i < files.length; i++) {
+      filenames.push(files[i].name);
+    }
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/folders/' + encodedPath + '/check-duplicates');
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function () {
+      if (xhr.status === 200) {
+        callback(JSON.parse(xhr.responseText));
+      } else {
+        callback({ duplicates: [], suggestions: {} });
+      }
+    };
+    xhr.onerror = function () {
+      callback({ duplicates: [], suggestions: {} });
+    };
+    xhr.send(JSON.stringify({ filenames: filenames }));
+  }
+
+  /**
+   * Show a dialog listing duplicate files with Skip / Rename options.
+   * Calls onResolved(resolvedFiles) with the final file list to upload.
+   */
+  function showDuplicateDialog(files, result, onResolved) {
+    var dupeSet = {};
+    for (var i = 0; i < result.duplicates.length; i++) {
+      dupeSet[result.duplicates[i]] = true;
+    }
+
+    var html = '<div style="margin-bottom:12px;">' +
+      '<p>The following files already exist in this folder:</p></div>' +
+      '<div style="max-height:300px;overflow-y:auto;">';
+
+    for (var d = 0; d < result.duplicates.length; d++) {
+      var name = result.duplicates[d];
+      var suggestion = result.suggestions[name] || name;
+      html += '<div class="dupe-row" data-original="' + escapeHtml(name) + '" ' +
+        'data-suggestion="' + escapeHtml(suggestion) + '" ' +
+        'style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">' +
+        '<strong style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(name) + '">' + escapeHtml(name) + '</strong>' +
+        '<select class="form-input dupe-action" style="width:auto;min-width:120px;">' +
+          '<option value="skip">Skip</option>' +
+          '<option value="rename">Rename</option>' +
+        '</select>' +
+        '<span class="dupe-rename-label text-secondary text-sm" style="display:none;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(suggestion) + '">&rarr; ' + escapeHtml(suggestion) + '</span>' +
+      '</div>';
+    }
+
+    html += '</div>' +
+      '<div class="form-actions" style="margin-top:16px;">' +
+        '<button type="button" class="btn btn-secondary" id="dupeCancel">Cancel</button>' +
+        '<button type="button" class="btn btn-primary" id="dupeProceed">Continue Upload</button>' +
+      '</div>';
+
+    openModal('Duplicate Files Found', html);
+
+    // Wire up skip/rename toggles
+    var selects = document.querySelectorAll('.dupe-action');
+    selects.forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        var label = sel.closest('.dupe-row').querySelector('.dupe-rename-label');
+        label.style.display = sel.value === 'rename' ? 'inline' : 'none';
+      });
+    });
+
+    document.getElementById('dupeCancel').addEventListener('click', function () {
+      closeModal();
+    });
+
+    document.getElementById('dupeProceed').addEventListener('click', function () {
+      var resolved = [];
+      var rows = document.querySelectorAll('.dupe-row');
+      var decisions = {};
+      rows.forEach(function (row) {
+        var orig = row.dataset.original;
+        var action = row.querySelector('.dupe-action').value;
+        decisions[orig] = {
+          action: action,
+          suggestion: row.dataset.suggestion
+        };
+      });
+
+      for (var f = 0; f < files.length; f++) {
+        var file = files[f];
+        if (dupeSet[file.name]) {
+          var decision = decisions[file.name];
+          if (decision.action === 'skip') continue;
+          // Rename: create a new File with the suggested name
+          resolved.push(new File([file], decision.suggestion, { type: file.type }));
+        } else {
+          resolved.push(file);
+        }
+      }
+
+      closeModal();
+      onResolved(resolved);
+    });
+  }
+
+  /**
+   * Check for duplicates and handle resolution before uploading.
+   * Calls onReady(filesToUpload) when ready to proceed.
+   */
+  function checkAndResolve(folderPath, files, onReady) {
+    checkDuplicates(folderPath, files, function (result) {
+      if (result.duplicates.length === 0) {
+        onReady(files);
+      } else {
+        showDuplicateDialog(files, result, function (resolved) {
+          if (resolved.length > 0) {
+            onReady(resolved);
+          }
+        });
+      }
+    });
+  }
+
+  // -----------------------------------------------------------------------
   // Context menu
   // -----------------------------------------------------------------------
 
@@ -393,40 +522,43 @@
         return;
       }
 
-      // Upload with inline status on the row
-      var label = row.querySelector('.tree-label');
-      var originalText = label.textContent;
-      label.textContent = originalText + ' (uploading ' + imageFiles.length + '...)';
-      row.classList.add('tree-row--uploading');
+      checkAndResolve(folderPath, imageFiles, function (filesToUpload) {
+        if (filesToUpload.length === 0) return;
 
-      var formData = new FormData();
-      for (var j = 0; j < imageFiles.length; j++) {
-        formData.append('photos', imageFiles[j]);
-      }
+        var label = row.querySelector('.tree-label');
+        var originalText = label.textContent;
+        label.textContent = originalText + ' (uploading ' + filesToUpload.length + '...)';
+        row.classList.add('tree-row--uploading');
 
-      var encodedPath = folderPath.replace(/\//g, '--');
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/folders/' + encodedPath + '/upload');
+        var formData = new FormData();
+        for (var j = 0; j < filesToUpload.length; j++) {
+          formData.append('photos', filesToUpload[j]);
+        }
 
-      xhr.onload = function () {
-        row.classList.remove('tree-row--uploading');
-        if (xhr.status >= 200 && xhr.status < 300) {
-          var result = JSON.parse(xhr.responseText);
-          label.textContent = originalText + ' (+' + result.uploaded + ')';
-          setTimeout(function () { renderFolders(); }, 1500);
-        } else {
+        var encodedPath = folderPath.replace(/\//g, '--');
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/folders/' + encodedPath + '/upload');
+
+        xhr.onload = function () {
+          row.classList.remove('tree-row--uploading');
+          if (xhr.status >= 200 && xhr.status < 300) {
+            var result = JSON.parse(xhr.responseText);
+            label.textContent = originalText + ' (+' + result.uploaded + ')';
+            setTimeout(function () { renderFolders(); }, 1500);
+          } else {
+            label.textContent = originalText + ' (upload failed)';
+            setTimeout(function () { label.textContent = originalText; }, 3000);
+          }
+        };
+
+        xhr.onerror = function () {
+          row.classList.remove('tree-row--uploading');
           label.textContent = originalText + ' (upload failed)';
           setTimeout(function () { label.textContent = originalText; }, 3000);
-        }
-      };
+        };
 
-      xhr.onerror = function () {
-        row.classList.remove('tree-row--uploading');
-        label.textContent = originalText + ' (upload failed)';
-        setTimeout(function () { label.textContent = originalText; }, 3000);
-      };
-
-      xhr.send(formData);
+        xhr.send(formData);
+      });
     });
   }
 
@@ -712,51 +844,62 @@
       var files = fileInput.files;
       if (!files || files.length === 0) return;
 
-      var btn = form.querySelector('[type="submit"]');
-      btn.disabled = true;
-      btn.textContent = 'Uploading...';
-      var progressDiv = document.getElementById('uploadProgress');
-      var progressBar = document.getElementById('uploadBar');
-      var statusText = document.getElementById('uploadStatus');
-      progressDiv.style.display = 'block';
-
-      var formData = new FormData();
+      var selectedFiles = [];
       for (var i = 0; i < files.length; i++) {
-        formData.append('photos', files[i]);
+        selectedFiles.push(files[i]);
       }
 
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/folders/' + encodedPath + '/upload');
+      closeModal();
 
-      xhr.upload.addEventListener('progress', function (evt) {
-        if (evt.lengthComputable) {
-          var pct = Math.round((evt.loaded / evt.total) * 100);
-          progressBar.style.width = pct + '%';
-          statusText.textContent = 'Uploading... ' + pct + '%';
+      checkAndResolve(folderPath, selectedFiles, function (filesToUpload) {
+        if (filesToUpload.length === 0) return;
+
+        // Re-open a progress modal for the upload
+        var progressHtml = '<div>' +
+          '<div style="background:var(--border);border-radius:4px;height:8px;margin:8px 0;">' +
+            '<div id="uploadBar" style="background:var(--primary);height:100%;border-radius:4px;width:0%;transition:width 0.3s;"></div>' +
+          '</div>' +
+          '<p class="text-secondary text-sm" id="uploadStatus">Uploading ' + filesToUpload.length + ' file(s)...</p>' +
+        '</div>';
+        openModal('Uploading Photos', progressHtml);
+
+        var formData = new FormData();
+        for (var j = 0; j < filesToUpload.length; j++) {
+          formData.append('photos', filesToUpload[j]);
         }
-      });
 
-      xhr.onload = function () {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          var result = JSON.parse(xhr.responseText);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/folders/' + encodedPath + '/upload');
+
+        xhr.upload.addEventListener('progress', function (evt) {
+          if (evt.lengthComputable) {
+            var pct = Math.round((evt.loaded / evt.total) * 100);
+            var bar = document.getElementById('uploadBar');
+            var status = document.getElementById('uploadStatus');
+            if (bar) bar.style.width = pct + '%';
+            if (status) status.textContent = 'Uploading... ' + pct + '%';
+          }
+        });
+
+        xhr.onload = function () {
           closeModal();
-          renderFolders();
-          alert(result.uploaded + ' photo(s) uploaded to ' + folderPath + '.\nThe watcher will sync them to the remote server.');
-        } else {
-          var err = JSON.parse(xhr.responseText || '{}');
-          alert('Upload failed: ' + (err.error || xhr.statusText));
-          btn.disabled = false;
-          btn.textContent = 'Upload';
-        }
-      };
+          if (xhr.status >= 200 && xhr.status < 300) {
+            var result = JSON.parse(xhr.responseText);
+            renderFolders();
+            alert(result.uploaded + ' photo(s) uploaded to ' + folderPath + '.\nThe watcher will sync them to the remote server.');
+          } else {
+            var err = JSON.parse(xhr.responseText || '{}');
+            alert('Upload failed: ' + (err.error || xhr.statusText));
+          }
+        };
 
-      xhr.onerror = function () {
-        alert('Upload failed: network error');
-        btn.disabled = false;
-        btn.textContent = 'Upload';
-      };
+        xhr.onerror = function () {
+          closeModal();
+          alert('Upload failed: network error');
+        };
 
-      xhr.send(formData);
+        xhr.send(formData);
+      });
     });
   }
 

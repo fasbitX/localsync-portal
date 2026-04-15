@@ -273,6 +273,38 @@ router.post('/folders', async (req, res) => {
   }
 });
 
+// POST /api/folders/:folderPath/check-duplicates - Check for existing filenames
+router.post('/folders/:folderPath/check-duplicates', (req, res) => {
+  const folderPath = (req.params.folderPath || '').replace(/--/g, '/');
+  const watchDir = path.resolve(config.watchDir);
+  const dest = path.join(watchDir, folderPath);
+
+  if (!dest.startsWith(watchDir)) {
+    return res.status(400).json({ error: 'Invalid path' });
+  }
+
+  const filenames = req.body.filenames || [];
+  const duplicates = [];
+  const suggestions = {};
+
+  for (const name of filenames) {
+    if (fs.existsSync(path.join(dest, name))) {
+      duplicates.push(name);
+      const ext = path.extname(name);
+      const base = path.basename(name, ext);
+      let counter = 1;
+      let suggestion;
+      do {
+        suggestion = base + ' (' + counter + ')' + ext;
+        counter++;
+      } while (fs.existsSync(path.join(dest, suggestion)));
+      suggestions[name] = suggestion;
+    }
+  }
+
+  res.json({ duplicates, suggestions });
+});
+
 // POST /api/folders/:folderPath/upload - Upload photos to a folder
 // The folderPath param uses -- as separator (since / can't be in URL params)
 // e.g. POST /api/folders/2024--Milton-Varsity-Baseball/upload
