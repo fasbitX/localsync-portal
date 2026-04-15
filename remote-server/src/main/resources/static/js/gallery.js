@@ -50,6 +50,13 @@
         }
     }
 
+    function escapeHtml(str) {
+        if (!str) return "";
+        var d = document.createElement("div");
+        d.textContent = str;
+        return d.innerHTML;
+    }
+
     // --- Fetch and render ---
     async function init() {
         var uuid = getFolderUuid();
@@ -94,6 +101,26 @@
         metaEl.textContent = info.photoCount + " photo" +
             (info.photoCount !== 1 ? "s" : "") +
             " \u00B7 Created " + formatDate(info.createdAt);
+
+        // Render details section if any details exist
+        var detailsEl = document.getElementById("gallery-details");
+        var hasDetails = info.opponent || info.location || info.gameDate || info.score || info.notes;
+        if (hasDetails && detailsEl) {
+            var dHtml = "";
+            var metaItems = [];
+            if (info.opponent) metaItems.push("<strong>vs " + escapeHtml(info.opponent) + "</strong>");
+            if (info.location) metaItems.push(escapeHtml(info.location));
+            if (info.gameDate) metaItems.push(formatDate(info.gameDate));
+            if (info.score) metaItems.push("Final: " + escapeHtml(info.score));
+            if (metaItems.length > 0) {
+                dHtml += '<p class="details-meta">' + metaItems.join(" &middot; ") + "</p>";
+            }
+            if (info.notes) {
+                dHtml += '<div class="details-notes">' + escapeHtml(info.notes).replace(/\n/g, "<br>") + "</div>";
+            }
+            detailsEl.innerHTML = dHtml;
+            detailsEl.style.display = "block";
+        }
 
         if (photoList.length === 0) {
             emptyEl.style.display = "block";

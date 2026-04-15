@@ -93,6 +93,11 @@ public class GalleryController {
         info.put("displayName", folder.getDisplayName());
         info.put("photoCount", folder.getPhotoCount());
         info.put("createdAt", folder.getCreatedAt().toString());
+        info.put("location", folder.getLocation());
+        info.put("gameDate", folder.getGameDate() != null ? folder.getGameDate().toString() : null);
+        info.put("score", folder.getScore());
+        info.put("opponent", folder.getOpponent());
+        info.put("notes", folder.getNotes());
 
         return ResponseEntity.ok(info);
     }

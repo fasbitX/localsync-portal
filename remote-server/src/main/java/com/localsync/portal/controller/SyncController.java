@@ -199,6 +199,58 @@ public class SyncController {
     }
 
     /**
+     * PUT /api/folders/details?relativePath=...
+     * Update folder details (location, game date, score, opponent, notes).
+     */
+    @PutMapping("/folders/details")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateFolderDetails(
+            @RequestParam("relativePath") String relativePath,
+            @RequestParam(value = "location", required = false) String location,
+            @RequestParam(value = "gameDate", required = false) String gameDate,
+            @RequestParam(value = "score", required = false) String score,
+            @RequestParam(value = "opponent", required = false) String opponent,
+            @RequestParam(value = "notes", required = false) String notes) {
+
+        String normalizedPath = normalizePath(relativePath);
+
+        Optional<Folder> existing = folderRepository.findByRelativePath(normalizedPath);
+        if (existing.isEmpty()) {
+            return ResponseEntity.status(404)
+                    .body(Map.of("error", "Folder not found: " + normalizedPath));
+        }
+
+        Folder folder = existing.get();
+        folder.setLocation(location);
+        folder.setScore(score);
+        folder.setOpponent(opponent);
+        folder.setNotes(notes);
+
+        if (gameDate != null && !gameDate.isBlank()) {
+            try {
+                folder.setGameDate(java.time.OffsetDateTime.parse(gameDate));
+            } catch (Exception e) {
+                try {
+                    folder.setGameDate(java.time.LocalDateTime.parse(gameDate)
+                            .atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime());
+                } catch (Exception e2) {
+                    log.warn("Could not parse game date: {}", gameDate);
+                }
+            }
+        } else {
+            folder.setGameDate(null);
+        }
+
+        folderRepository.save(folder);
+
+        log.info("Updated folder details: {}", normalizedPath);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("message", "Details updated");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Normalize a relative path: convert backslashes to forward slashes and strip leading slash.
      */
     private String normalizePath(String path) {

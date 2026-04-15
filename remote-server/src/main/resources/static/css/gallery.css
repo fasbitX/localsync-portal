@@ -72,6 +72,28 @@ body {
     margin-top: 4px;
 }
 
+/* Gallery Details */
+.gallery-details {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px 16px;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 8px;
+}
+
+.gallery-details .details-meta {
+    font-size: 0.9375rem;
+    color: #555;
+    margin-bottom: 8px;
+}
+
+.gallery-details .details-notes {
+    font-size: 0.875rem;
+    color: #666;
+    line-height: 1.6;
+    margin-top: 8px;
+}
+
 /* Empty message */
 .empty-message {
     text-align: center;

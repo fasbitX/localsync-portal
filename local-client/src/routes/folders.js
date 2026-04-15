@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const AdmZip = require('adm-zip');
+const axios = require('axios');
 const exifr = require('exifr');
 const config = require('../config');
 const { query } = require('../db');
@@ -389,6 +390,74 @@ router.post('/folders/:folderPath/upload', upload.array('photos', 50), async (re
   } catch (err) {
     console.error('[folders] Upload error:', err.message);
     res.status(500).json({ error: err.message || 'Upload failed' });
+  }
+});
+
+// GET /api/folders/:folderPath/details - Get folder details
+router.get('/folders/:folderPath/details', async (req, res) => {
+  try {
+    const folderPath = req.params.folderPath.replace(/--/g, '/');
+    const result = await query(
+      'SELECT location, game_date, score, opponent, notes FROM folder_details WHERE relative_path = $1',
+      [folderPath]
+    );
+    if (result.rows.length === 0) {
+      return res.json({ location: '', gameDate: '', score: '', opponent: '', notes: '' });
+    }
+    const row = result.rows[0];
+    res.json({
+      location: row.location || '',
+      gameDate: row.game_date ? row.game_date.toISOString() : '',
+      score: row.score || '',
+      opponent: row.opponent || '',
+      notes: row.notes || '',
+    });
+  } catch (err) {
+    console.error('[folders] GET details error:', err.message);
+    res.status(500).json({ error: 'Failed to load details' });
+  }
+});
+
+// PUT /api/folders/:folderPath/details - Save folder details and sync to remote
+router.put('/folders/:folderPath/details', async (req, res) => {
+  try {
+    const folderPath = req.params.folderPath.replace(/--/g, '/');
+    const { location, gameDate, score, opponent, notes } = req.body;
+
+    const gameDateValue = gameDate || null;
+
+    await query(
+      `INSERT INTO folder_details (relative_path, location, game_date, score, opponent, notes, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (relative_path)
+       DO UPDATE SET location = $2, game_date = $3, score = $4, opponent = $5, notes = $6, updated_at = NOW()`,
+      [folderPath, location || null, gameDateValue, score || null, opponent || null, notes || null]
+    );
+
+    // Sync details to remote server (best-effort)
+    try {
+      const params = new URLSearchParams();
+      params.append('relativePath', folderPath);
+      if (location) params.append('location', location);
+      if (gameDate) params.append('gameDate', gameDate);
+      if (score) params.append('score', score);
+      if (opponent) params.append('opponent', opponent);
+      if (notes) params.append('notes', notes);
+
+      await axios.put(
+        config.remote.url + '/api/folders/details?' + params.toString(),
+        null,
+        { headers: { 'X-API-Key': config.remote.apiKey }, timeout: 15000 }
+      );
+      console.log('[folders] Details synced to remote: ' + folderPath);
+    } catch (syncErr) {
+      console.error('[folders] Failed to sync details to remote:', syncErr.message);
+    }
+
+    res.json({ message: 'Details saved' });
+  } catch (err) {
+    console.error('[folders] PUT details error:', err.message);
+    res.status(500).json({ error: 'Failed to save details' });
   }
 });
 

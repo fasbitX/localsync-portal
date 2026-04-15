@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS folders (
     display_name VARCHAR(200),
     visible BOOLEAN DEFAULT TRUE,
     photo_count INTEGER DEFAULT 0,
+    location VARCHAR(300),
+    game_date TIMESTAMP WITH TIME ZONE,
+    score VARCHAR(50),
+    opponent VARCHAR(200),
+    notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

@@ -55,7 +55,21 @@ CREATE TABLE IF NOT EXISTS sync_log (
     synced_at TIMESTAMP WITH TIME ZONE
 );
 
+-- Folder details (game info, notes)
+CREATE TABLE IF NOT EXISTS folder_details (
+    id SERIAL PRIMARY KEY,
+    relative_path VARCHAR(500) NOT NULL UNIQUE,
+    location VARCHAR(300),
+    game_date TIMESTAMP WITH TIME ZONE,
+    score VARCHAR(50),
+    opponent VARCHAR(200),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Indexes
+CREATE INDEX IF NOT EXISTS idx_folder_details_path ON folder_details(relative_path);
 CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
 CREATE INDEX IF NOT EXISTS idx_invites_contact_id ON invites(contact_id);
 CREATE INDEX IF NOT EXISTS idx_invites_folder_path ON invites(folder_path);

@@ -34,6 +34,21 @@ public class Folder {
     @Column(name = "photo_count", nullable = false)
     private Integer photoCount = 0;
 
+    @Column(length = 300)
+    private String location;
+
+    @Column(name = "game_date")
+    private OffsetDateTime gameDate;
+
+    @Column(length = 50)
+    private String score;
+
+    @Column(length = 200)
+    private String opponent;
+
+    @Column(columnDefinition = "TEXT")
+    private String notes;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -106,6 +121,46 @@ public class Folder {
 
     public void setPhotoCount(Integer photoCount) {
         this.photoCount = photoCount;
+    }
+
+    public String getLocation() {
+        return location;
+    }
+
+    public void setLocation(String location) {
+        this.location = location;
+    }
+
+    public OffsetDateTime getGameDate() {
+        return gameDate;
+    }
+
+    public void setGameDate(OffsetDateTime gameDate) {
+        this.gameDate = gameDate;
+    }
+
+    public String getScore() {
+        return score;
+    }
+
+    public void setScore(String score) {
+        this.score = score;
+    }
+
+    public String getOpponent() {
+        return opponent;
+    }
+
+    public void setOpponent(String opponent) {
+        this.opponent = opponent;
+    }
+
+    public String getNotes() {
+        return notes;
+    }
+
+    public void setNotes(String notes) {
+        this.notes = notes;
     }
 
     public OffsetDateTime getCreatedAt() {

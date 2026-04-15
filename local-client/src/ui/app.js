@@ -280,6 +280,7 @@
       case 'upload': openUploadPhotosModal(folderPath); break;
       case 'subfolder': openSubFolderModal(folderPath); break;
       case 'invite': openFolderInviteModal(folderPath, folderData ? folderData.galleryUrl || '' : ''); break;
+      case 'details': openFolderDetailsModal(folderPath); break;
       case 'rename': openRenameFolderModal(folderPath); break;
       case 'delete': openDeleteFolderModal(folderPath, folderData ? folderData.fileCount : 0); break;
     }
@@ -671,7 +672,10 @@
 
       var html = '<div class="card"><div class="card-header">' +
         '<h2 class="card-title">' + escapeHtml(folderName) + '</h2>' +
-        '<span class="text-secondary text-sm">' + files.length + ' photo' + (files.length !== 1 ? 's' : '') + '</span></div>';
+        '<div style="display:flex;align-items:center;gap:12px;">' +
+          '<span class="text-secondary text-sm">' + files.length + ' photo' + (files.length !== 1 ? 's' : '') + '</span>' +
+          '<button class="btn btn-outline btn-sm" id="detailsBtn" data-path="' + escapeHtml(folderPath) + '">Details</button>' +
+        '</div></div>';
 
       if (files.length === 0) {
         html += '<div class="empty-state"><p>No photos in this folder.<br>Drag &amp; drop images onto the folder, or right-click to upload.</p></div>';
@@ -706,6 +710,14 @@
       }
       html += '</div>';
       detail.innerHTML = html;
+
+      // Bind Details button
+      var detailsBtn = document.getElementById('detailsBtn');
+      if (detailsBtn) {
+        detailsBtn.addEventListener('click', function () {
+          openFolderDetailsModal(detailsBtn.dataset.path);
+        });
+      }
 
       // Bind click on thumbnails to open overlay
       var grid = detail.querySelector('.photo-grid');
@@ -949,6 +961,76 @@
 
         xhr.send(formData);
       });
+    });
+  }
+
+  function openFolderDetailsModal(folderPath) {
+    var encodedPath = folderPath.replace(/\//g, '--');
+
+    // Fetch existing details
+    api('GET', '/folders/' + encodedPath + '/details').then(function (data) {
+      var gameDateVal = '';
+      if (data.gameDate) {
+        // Format for datetime-local input (YYYY-MM-DDTHH:MM)
+        var d = new Date(data.gameDate);
+        if (!isNaN(d.getTime())) {
+          gameDateVal = d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0') + 'T' +
+            String(d.getHours()).padStart(2, '0') + ':' +
+            String(d.getMinutes()).padStart(2, '0');
+        }
+      }
+
+      var html = '<form id="folderDetailsForm">' +
+        '<div class="form-group"><label class="form-label">Folder</label>' +
+        '<input class="form-input" value="' + escapeHtml(folderPath) + '" readonly></div>' +
+        '<div class="form-group"><label class="form-label">Opponent</label>' +
+        '<input class="form-input" name="opponent" value="' + escapeHtml(data.opponent) + '" placeholder="e.g. Milton Eagles"></div>' +
+        '<div class="form-group"><label class="form-label">Location</label>' +
+        '<input class="form-input" name="location" value="' + escapeHtml(data.location) + '" placeholder="e.g. Home Field"></div>' +
+        '<div style="display:flex;gap:12px;">' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">Game Date &amp; Time</label>' +
+          '<input class="form-input" type="datetime-local" name="gameDate" value="' + gameDateVal + '"></div>' +
+          '<div class="form-group" style="flex:1;"><label class="form-label">Final Score</label>' +
+          '<input class="form-input" name="score" value="' + escapeHtml(data.score) + '" placeholder="e.g. 7-3"></div>' +
+        '</div>' +
+        '<div class="form-group"><label class="form-label">Notes</label>' +
+        '<textarea class="form-input" name="notes" rows="6" placeholder="Game recap, highlights, etc.">' + escapeHtml(data.notes) + '</textarea></div>' +
+        '<div class="form-actions">' +
+          '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'modalOverlay\').classList.remove(\'open\')">Cancel</button>' +
+          '<button type="submit" class="btn btn-primary">Save Details</button>' +
+        '</div></form>';
+
+      openModal('Folder Details', html);
+
+      document.getElementById('folderDetailsForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var form = e.target;
+        var btn = form.querySelector('[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        try {
+          var gameDateInput = form.querySelector('[name="gameDate"]').value;
+          var payload = {
+            location: form.querySelector('[name="location"]').value,
+            gameDate: gameDateInput ? new Date(gameDateInput).toISOString() : '',
+            score: form.querySelector('[name="score"]').value,
+            opponent: form.querySelector('[name="opponent"]').value,
+            notes: form.querySelector('[name="notes"]').value,
+          };
+
+          await api('PUT', '/folders/' + encodedPath + '/details', payload);
+          closeModal();
+        } catch (err) {
+          alert('Failed to save details: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'Save Details';
+        }
+      });
+    }).catch(function (err) {
+      alert('Failed to load details: ' + err.message);
     });
   }
 
