@@ -549,7 +549,7 @@
           if (xhr.status >= 200 && xhr.status < 300) {
             var result = JSON.parse(xhr.responseText);
             label.textContent = originalText + ' (+' + result.uploaded + ')';
-            setTimeout(function () { renderFolders(); }, 1500);
+            refreshAfterUpload(folderPath);
           } else {
             label.textContent = originalText + ' (upload failed)';
             setTimeout(function () { label.textContent = originalText; }, 3000);
@@ -613,6 +613,43 @@
       bindTreeEvents();
     } catch (err) {
       showError('Failed to load folders: ' + err.message);
+    }
+  }
+
+  /**
+   * Lightweight refresh after upload: update folder tree counts in-place
+   * and reload the photo grid if the target folder is currently selected.
+   */
+  async function refreshAfterUpload(uploadedFolderPath) {
+    // Refresh folder data and update tree-meta counts without rebuilding the DOM
+    try {
+      foldersCache = await api('GET', '/folders');
+      var lookup = {};
+      foldersCache.forEach(function (f) { lookup[f.relativePath] = f; });
+
+      document.querySelectorAll('.tree-node').forEach(function (node) {
+        var p = node.dataset.path;
+        var f = lookup[p];
+        var meta = node.querySelector(':scope > .tree-row > .tree-meta');
+        if (f && f.fileCount > 0) {
+          if (meta) {
+            meta.textContent = f.fileCount + ' image' + (f.fileCount !== 1 ? 's' : '');
+          } else {
+            var row = node.querySelector(':scope > .tree-row');
+            if (row) {
+              var span = document.createElement('span');
+              span.className = 'tree-meta';
+              span.textContent = f.fileCount + ' image' + (f.fileCount !== 1 ? 's' : '');
+              row.appendChild(span);
+            }
+          }
+        }
+      });
+    } catch (_) { /* ignore */ }
+
+    // Reload the photo grid if viewing the folder that received the upload
+    if (currentFolderPath === uploadedFolderPath) {
+      loadFolderPhotos(uploadedFolderPath);
     }
   }
 
@@ -897,7 +934,7 @@
           closeModal();
           if (xhr.status >= 200 && xhr.status < 300) {
             var result = JSON.parse(xhr.responseText);
-            renderFolders();
+            refreshAfterUpload(folderPath);
             alert(result.uploaded + ' photo(s) uploaded to ' + folderPath + '.\nThe watcher will sync them to the remote server.');
           } else {
             var err = JSON.parse(xhr.responseText || '{}');
