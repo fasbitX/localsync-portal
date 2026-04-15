@@ -15,6 +15,11 @@
   let invitesCache = [];
   let foldersCache = [];
   let syncPollTimer = null;
+  var THUMB_SIZES = { small: 120, medium: 180, large: 260 };
+  var thumbnailSize = localStorage.getItem('thumbnailSize') || 'medium';
+  var currentFolderFiles = [];
+  var currentPhotoIndex = 0;
+  var currentFolderPath = '';
 
   // DOM references
   const contentEl = document.getElementById('content');
@@ -86,6 +91,7 @@
   function closeModal() {
     modalOverlay.classList.remove('open');
     modalBody.innerHTML = '';
+    document.getElementById('modal').classList.remove('modal--lightbox');
   }
 
   modalClose.addEventListener('click', closeModal);
@@ -121,7 +127,16 @@
     if (!contextMenu.contains(e.target)) hideContextMenu();
   });
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') hideContextMenu();
+    if (e.key === 'Escape') {
+      hideContextMenu();
+      closePhotoOverlay();
+    }
+    // Arrow keys only when overlay is open
+    var overlay = document.getElementById('photoOverlay');
+    if (overlay && overlay.classList.contains('open') && currentFolderFiles.length > 0) {
+      if (e.key === 'ArrowLeft') { navigatePhoto(-1); e.preventDefault(); }
+      if (e.key === 'ArrowRight') { navigatePhoto(1); e.preventDefault(); }
+    }
   });
 
   contextMenu.addEventListener('click', function (e) {
@@ -155,6 +170,13 @@
       clearInterval(syncPollTimer);
       syncPollTimer = null;
     }
+    // Clear photo viewer state and close overlay when leaving folders
+    if (view !== 'folders') {
+      closePhotoOverlay();
+      currentFolderFiles = [];
+      currentPhotoIndex = 0;
+      currentFolderPath = '';
+    }
     renderView();
     // Close sidebar on mobile after navigating
     sidebar.classList.remove('open');
@@ -181,6 +203,7 @@
       case 'groups':   renderGroups();   break;
       case 'invites':  renderInvites();  break;
       case 'synclog':  renderSyncLog();  break;
+      case 'settings': renderSettings(); break;
     }
   }
 
@@ -237,9 +260,7 @@
     var html = '';
     nodes.forEach(function (node) {
       var hasChildren = node.children.length > 0;
-      var typeClass = node.isPhoto ? ' tree-node--photo' : '';
-
-      html += '<li class="tree-node' + typeClass + '" data-path="' + escapeHtml(node.relativePath) + '">';
+      html += '<li class="tree-node" data-path="' + escapeHtml(node.relativePath) + '">';
       html += '<div class="tree-row">';
       html += '<span class="tree-indent" style="width:' + (depth * 20) + 'px"></span>';
 
@@ -249,11 +270,7 @@
         html += '<span class="tree-chevron tree-chevron--leaf">&#9654;</span>';
       }
 
-      if (node.isPhoto) {
-        html += '<span class="tree-icon tree-icon--photo">&#128247;</span>';
-      } else {
-        html += '<span class="tree-icon tree-icon--header">&#128193;</span>';
-      }
+      html += '<span class="tree-icon">&#128193;</span>';
 
       html += '<span class="tree-label">' + escapeHtml(node.name) + '</span>';
 
@@ -286,8 +303,21 @@
     // Click on chevron: expand/collapse
     tree.addEventListener('click', function (e) {
       var chevron = e.target.closest('.tree-chevron:not(.tree-chevron--leaf)');
-      if (!chevron) return;
-      toggleNode(chevron.closest('.tree-node'));
+      if (chevron) {
+        toggleNode(chevron.closest('.tree-node'));
+        return;
+      }
+      // Click on row: select folder and load photos
+      var row = e.target.closest('.tree-row');
+      if (!row) return;
+      if (e.target.closest('.tree-gallery-link')) return;
+      var node = row.closest('.tree-node');
+      // Highlight selected
+      tree.querySelectorAll('.tree-row--selected').forEach(function (el) {
+        el.classList.remove('tree-row--selected');
+      });
+      row.classList.add('tree-row--selected');
+      loadFolderPhotos(node.dataset.path);
     });
 
     // Double-click on row: expand/collapse or open gallery
@@ -417,16 +447,24 @@
       foldersCache = await api('GET', '/folders');
       var tree = buildFolderTree(foldersCache);
 
-      var html = '<div class="card"><div class="card-header">' +
+      var html = '<div class="folders-layout">';
+
+      // Left panel: tree
+      html += '<div class="folders-tree-panel"><div class="card"><div class="card-header">' +
         '<h2 class="card-title">Photo Folders</h2>' +
-        '<button class="btn btn-primary" id="createFolderBtn">+ New Folder</button></div>';
+        '<button class="btn btn-primary btn-sm" id="createFolderBtn">+ New</button></div>';
 
       if (tree.length === 0) {
-        html += '<div class="empty-state"><p>No folders found. Create one or drop photos into the watched directory.</p></div>';
+        html += '<div class="empty-state"><p>No folders yet.</p></div>';
       } else {
         html += '<ul class="folder-tree">' + renderTreeNodes(tree, 0) + '</ul>';
-        html += '<p class="text-secondary text-sm" style="padding:8px 12px 0;">Right-click a folder for actions</p>';
+        html += '<p class="text-secondary text-sm" style="padding:8px 12px 0;">Right-click for actions</p>';
       }
+      html += '</div></div>';
+
+      // Right panel: photo detail
+      html += '<div class="folders-detail-panel" id="folderDetail">' +
+        '<div class="card"><div class="empty-state"><p>Select a folder to view photos</p></div></div></div>';
 
       html += '</div>';
       contentEl.innerHTML = html;
@@ -438,6 +476,212 @@
       bindTreeEvents();
     } catch (err) {
       showError('Failed to load folders: ' + err.message);
+    }
+  }
+
+  // -- Load and display photos for a selected folder (thumbnail grid) --------
+
+  async function loadFolderPhotos(folderPath) {
+    var detail = document.getElementById('folderDetail');
+    if (!detail) return;
+    detail.innerHTML = '<div class="card"><div class="loading">Loading photos...</div></div>';
+
+    try {
+      var encodedPath = folderPath === '.' ? '.' : folderPath.replace(/\//g, '--');
+      var files = await api('GET', '/folders/' + encodedPath + '/files');
+      var folderName = folderPath === '.' ? '(root)' : folderPath.split('/').pop();
+
+      currentFolderFiles = files;
+      currentPhotoIndex = 0;
+      currentFolderPath = folderPath;
+
+      var html = '<div class="card"><div class="card-header">' +
+        '<h2 class="card-title">' + escapeHtml(folderName) + '</h2>' +
+        '<span class="text-secondary text-sm">' + files.length + ' photo' + (files.length !== 1 ? 's' : '') + '</span></div>';
+
+      if (files.length === 0) {
+        html += '<div class="empty-state"><p>No photos in this folder.<br>Drag &amp; drop images onto the folder, or right-click to upload.</p></div>';
+      } else {
+        html += '<div class="photo-grid">';
+        files.forEach(function (f, idx) {
+          html += '<div class="photo-thumb" data-index="' + idx + '">';
+          if (f.browserViewable) {
+            html += '<img src="' + escapeHtml(f.url) + '" alt="' + escapeHtml(f.name) + '" loading="lazy">';
+          } else {
+            var ext = f.name.substring(f.name.lastIndexOf('.') + 1).toUpperCase();
+            html += '<div class="photo-thumb-placeholder">' +
+              '<div class="photo-thumb-placeholder-ext">' + escapeHtml(ext) + '</div>' +
+              '<p>No preview</p></div>';
+          }
+          var caption = f.exif && f.exif.title ? f.exif.title : f.name;
+          html += '<div class="photo-thumb-caption" title="' + escapeHtml(f.name) + '">' + escapeHtml(caption) + '</div>';
+          if (f.exif) {
+            var meta = [];
+            if (f.exif.camera) meta.push(f.exif.camera);
+            if (f.exif.focalLength) meta.push(f.exif.focalLength + 'mm');
+            if (f.exif.fNumber) meta.push('f/' + f.exif.fNumber);
+            if (f.exif.exposure) meta.push(f.exif.exposure);
+            if (f.exif.iso) meta.push('ISO ' + f.exif.iso);
+            if (meta.length > 0) {
+              html += '<div class="photo-thumb-meta">' + escapeHtml(meta.join(' \u2022 ')) + '</div>';
+            }
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+      detail.innerHTML = html;
+
+      // Bind click on thumbnails to open overlay
+      var grid = detail.querySelector('.photo-grid');
+      if (grid) {
+        grid.addEventListener('click', function (e) {
+          var thumb = e.target.closest('.photo-thumb');
+          if (!thumb) return;
+          var idx = parseInt(thumb.dataset.index, 10);
+          openPhotoOverlay(idx);
+        });
+      }
+    } catch (err) {
+      detail.innerHTML = '<div class="card"><div class="error-msg">Failed to load photos: ' + escapeHtml(err.message) + '</div></div>';
+    }
+  }
+
+  // -- Fullscreen photo overlay ---------------------------------------------
+
+  function openPhotoOverlay(index) {
+    if (currentFolderFiles.length === 0) return;
+    currentPhotoIndex = index;
+
+    // Remove any existing overlay before creating a new one
+    var existing = document.getElementById('photoOverlay');
+    if (existing) existing.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'photoOverlay';
+    overlay.className = 'photo-overlay open';
+
+    overlay.innerHTML =
+      '<span class="photo-overlay-counter" id="overlayCounter"></span>' +
+      '<button class="photo-overlay-close" id="overlayClose" title="Close">&times;</button>' +
+      '<button class="photo-overlay-nav--prev" id="overlayPrev">&lt;</button>' +
+      '<div class="photo-overlay-stage" id="overlayStage"></div>' +
+      '<button class="photo-overlay-nav--next" id="overlayNext">&gt;</button>' +
+      '<div class="photo-overlay-bar">' +
+        '<div class="photo-overlay-info" id="overlayInfo"></div>' +
+        '<button class="btn btn-danger btn-sm" id="overlayDelete">Delete</button>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+
+    // Prevent body scroll
+    document.body.style.overflow = 'hidden';
+
+    showPhotoAtIndex(index);
+
+    // Event listeners
+    document.getElementById('overlayClose').addEventListener('click', closePhotoOverlay);
+    document.getElementById('overlayPrev').addEventListener('click', function () { navigatePhoto(-1); });
+    document.getElementById('overlayNext').addEventListener('click', function () { navigatePhoto(1); });
+    document.getElementById('overlayDelete').addEventListener('click', function () { deleteCurrentPhoto(); });
+
+    // Click on backdrop to close (only if clicking the overlay itself, not children)
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay || e.target.id === 'overlayStage') {
+        closePhotoOverlay();
+      }
+    });
+  }
+
+  function closePhotoOverlay() {
+    var overlay = document.getElementById('photoOverlay');
+    if (!overlay) return;
+    overlay.remove();
+    document.body.style.overflow = '';
+  }
+
+  // -- Photo viewer navigation (works inside overlay) -------------------------
+
+  function showPhotoAtIndex(index) {
+    if (currentFolderFiles.length === 0) return;
+    currentPhotoIndex = index;
+    var f = currentFolderFiles[index];
+    var stage = document.getElementById('overlayStage');
+    var info = document.getElementById('overlayInfo');
+    var counter = document.getElementById('overlayCounter');
+    if (!stage) return;
+
+    if (f.browserViewable) {
+      stage.innerHTML = '<img class="photo-overlay-img" src="' + escapeHtml(f.url) + '" alt="' + escapeHtml(f.name) + '">';
+    } else {
+      var ext = f.name.substring(f.name.lastIndexOf('.') + 1).toUpperCase();
+      stage.innerHTML = '<div class="photo-overlay-placeholder">' +
+        '<div class="photo-overlay-placeholder-ext">' + escapeHtml(ext) + '</div>' +
+        '<p>Cannot preview this format in the browser.</p>' +
+        '<a href="' + escapeHtml(f.url) + '" download class="btn btn-primary btn-sm mt-8">Download</a></div>';
+    }
+
+    if (counter) {
+      counter.textContent = (index + 1) + ' / ' + currentFolderFiles.length;
+    }
+
+    var name = f.exif && f.exif.title ? f.exif.title : f.name;
+    var infoHtml = '<span class="photo-overlay-name">' + escapeHtml(name) + '</span>';
+    if (f.exif) {
+      var meta = [];
+      if (f.exif.camera) meta.push(f.exif.camera);
+      if (f.exif.focalLength) meta.push(f.exif.focalLength + 'mm');
+      if (f.exif.fNumber) meta.push('f/' + f.exif.fNumber);
+      if (f.exif.exposure) meta.push(f.exif.exposure);
+      if (f.exif.iso) meta.push('ISO ' + f.exif.iso);
+      if (meta.length > 0) {
+        infoHtml += '<span class="photo-overlay-meta">' + escapeHtml(meta.join(' \u2022 ')) + '</span>';
+      }
+    }
+    info.innerHTML = infoHtml;
+
+    var prev = document.getElementById('overlayPrev');
+    var next = document.getElementById('overlayNext');
+    if (prev) prev.style.visibility = currentFolderFiles.length <= 1 ? 'hidden' : 'visible';
+    if (next) next.style.visibility = currentFolderFiles.length <= 1 ? 'hidden' : 'visible';
+  }
+
+  function navigatePhoto(delta) {
+    if (currentFolderFiles.length === 0) return;
+    var newIndex = currentPhotoIndex + delta;
+    if (newIndex < 0) newIndex = currentFolderFiles.length - 1;
+    if (newIndex >= currentFolderFiles.length) newIndex = 0;
+    showPhotoAtIndex(newIndex);
+  }
+
+  async function deleteCurrentPhoto() {
+    if (currentFolderFiles.length === 0) return;
+    var f = currentFolderFiles[currentPhotoIndex];
+    if (!confirm('Delete "' + f.name + '"?\n\nThis does NOT delete the photo from the remote server.')) return;
+
+    var encodedPath = currentFolderPath === '.' ? '.' : currentFolderPath.replace(/\//g, '--');
+    try {
+      await api('DELETE', '/folders/' + encodedPath + '/photos/' + encodeURIComponent(f.name));
+      currentFolderFiles.splice(currentPhotoIndex, 1);
+      if (currentFolderFiles.length === 0) {
+        closePhotoOverlay();
+        loadFolderPhotos(currentFolderPath);
+      } else {
+        if (currentPhotoIndex >= currentFolderFiles.length) currentPhotoIndex = 0;
+        showPhotoAtIndex(currentPhotoIndex);
+        // Refresh the thumbnail grid underneath without clobbering overlay state
+        var savedFiles = currentFolderFiles.slice();
+        var savedIndex = currentPhotoIndex;
+        var savedPath = currentFolderPath;
+        loadFolderPhotos(currentFolderPath).then(function () {
+          currentFolderFiles = savedFiles;
+          currentPhotoIndex = savedIndex;
+          currentFolderPath = savedPath;
+        });
+      }
+    } catch (err) {
+      alert('Failed to delete photo: ' + err.message);
     }
   }
 
@@ -1218,6 +1462,31 @@
   }
 
   // -----------------------------------------------------------------------
+  // SETTINGS VIEW
+  // -----------------------------------------------------------------------
+
+  function renderSettings() {
+    var html = '<div class="card"><div class="card-header"><h2 class="card-title">Settings</h2></div>';
+    html += '<div class="form-group"><label class="form-label">Thumbnail Size</label>' +
+      '<div class="settings-radio-group">';
+    ['small', 'medium', 'large'].forEach(function (size) {
+      var checked = thumbnailSize === size ? ' checked' : '';
+      html += '<label><input type="radio" name="thumbSize" value="' + size + '"' + checked + '> ' +
+        size.charAt(0).toUpperCase() + size.slice(1) + ' (' + THUMB_SIZES[size] + 'px)</label>';
+    });
+    html += '</div></div></div>';
+    contentEl.innerHTML = html;
+
+    contentEl.querySelectorAll('[name="thumbSize"]').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        thumbnailSize = radio.value;
+        localStorage.setItem('thumbnailSize', thumbnailSize);
+        document.documentElement.style.setProperty('--thumb-size', THUMB_SIZES[thumbnailSize] + 'px');
+      });
+    });
+  }
+
+  // -----------------------------------------------------------------------
   // Initial sync status indicator
   // -----------------------------------------------------------------------
 
@@ -1247,6 +1516,9 @@
   // -----------------------------------------------------------------------
   // Boot
   // -----------------------------------------------------------------------
+
+  // Apply saved thumbnail size
+  document.documentElement.style.setProperty('--thumb-size', THUMB_SIZES[thumbnailSize] + 'px');
 
   renderView();
   updateStatusIndicator();

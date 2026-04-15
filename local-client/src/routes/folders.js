@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const exifr = require('exifr');
 const config = require('../config');
 const { query } = require('../db');
 const sync = require('../sync');
@@ -11,7 +12,7 @@ const router = express.Router();
 // Multer storage: save uploaded files into the correct subfolder of watchDir
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const folderPath = req.params.folderPath || '';
+    const folderPath = (req.params.folderPath || '').replace(/--/g, '/');
     const watchDir = path.resolve(config.watchDir);
     const dest = path.join(watchDir, folderPath);
     if (!dest.startsWith(watchDir)) {
@@ -134,6 +135,89 @@ router.get('/folders', async (req, res) => {
   } catch (err) {
     console.error('[folders] GET error:', err.message);
     res.status(500).json({ error: 'Failed to list folders' });
+  }
+});
+
+// Browser-viewable image formats (TIFF/RAW can't reliably render in <img>)
+const BROWSER_VIEWABLE = new Set(['.jpg', '.jpeg', '.png']);
+
+// GET /api/folders/:folderPath/files - List photos in a folder with EXIF data
+router.get('/folders/:folderPath/files', async (req, res) => {
+  try {
+    const folderPath = req.params.folderPath === '.' ? '' : req.params.folderPath.replace(/--/g, '/');
+    const watchDir = path.resolve(config.watchDir);
+    const fullPath = folderPath ? path.join(watchDir, folderPath) : watchDir;
+
+    if (!fullPath.startsWith(watchDir)) {
+      return res.status(400).json({ error: 'Invalid path' });
+    }
+
+    if (!fs.existsSync(fullPath)) {
+      return res.json([]);
+    }
+
+    let entries;
+    try {
+      entries = fs.readdirSync(fullPath, { withFileTypes: true });
+    } catch {
+      return res.json([]);
+    }
+
+    const files = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || entry.name.startsWith('.')) continue;
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!IMAGE_EXTENSIONS.has(ext)) continue;
+
+      const filePath = path.join(fullPath, entry.name);
+      const relativePath = folderPath ? folderPath + '/' + entry.name : entry.name;
+      const stat = fs.statSync(filePath);
+
+      // Build URL-encoded path for browser
+      const urlPath = '/photos/' + relativePath.split('/').map(s => encodeURIComponent(s)).join('/');
+
+      // Extract EXIF data
+      let exif = null;
+      try {
+        const raw = await exifr.parse(filePath, {
+          pick: ['ImageDescription', 'DateTimeOriginal', 'Make', 'Model',
+                 'ExposureTime', 'FNumber', 'ISO', 'FocalLength', 'LensModel']
+        });
+        if (raw) {
+          exif = {
+            title: raw.ImageDescription || path.basename(entry.name, ext),
+            dateTaken: raw.DateTimeOriginal || null,
+            camera: [raw.Make, raw.Model].filter(Boolean).join(' ') || null,
+            lens: raw.LensModel || null,
+            exposure: raw.ExposureTime ? (raw.ExposureTime < 1 ? '1/' + Math.round(1 / raw.ExposureTime) : raw.ExposureTime + 's') : null,
+            fNumber: raw.FNumber || null,
+            iso: raw.ISO || null,
+            focalLength: raw.FocalLength ? Math.round(raw.FocalLength) : null,
+          };
+        }
+      } catch {
+        // EXIF extraction failed — use filename as title
+      }
+
+      if (!exif) {
+        exif = { title: path.basename(entry.name, ext) };
+      }
+
+      files.push({
+        name: entry.name,
+        relativePath,
+        size: stat.size,
+        url: urlPath,
+        browserViewable: BROWSER_VIEWABLE.has(ext),
+        exif,
+      });
+    }
+
+    files.sort((a, b) => a.name.localeCompare(b.name));
+    res.json(files);
+  } catch (err) {
+    console.error('[folders] GET files error:', err.message);
+    res.status(500).json({ error: 'Failed to list files' });
   }
 });
 
@@ -320,6 +404,45 @@ router.delete('/folders', async (req, res) => {
   } catch (err) {
     console.error('[folders] DELETE error:', err.message);
     res.status(500).json({ error: 'Failed to delete folder' });
+  }
+});
+
+// DELETE /api/folders/:folderPath/photos/:photoName - Delete a single photo
+router.delete('/folders/:folderPath/photos/:photoName', async (req, res) => {
+  try {
+    const folderPath = req.params.folderPath === '.' ? '' : req.params.folderPath.replace(/--/g, '/');
+    const photoName = req.params.photoName;
+
+    if (!photoName || photoName.includes('/') || photoName.includes('..')) {
+      return res.status(400).json({ error: 'Invalid photo name' });
+    }
+
+    const watchDir = path.resolve(config.watchDir);
+    const fullPath = folderPath
+      ? path.join(watchDir, folderPath, photoName)
+      : path.join(watchDir, photoName);
+
+    if (!fullPath.startsWith(watchDir)) {
+      return res.status(400).json({ error: 'Invalid path' });
+    }
+
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'Photo not found' });
+    }
+
+    fs.unlinkSync(fullPath);
+
+    // Clean up sync_log entry
+    const relativePath = folderPath ? folderPath + '/' + photoName : photoName;
+    await query(
+      `DELETE FROM sync_log WHERE relative_path = $1`,
+      [relativePath]
+    );
+
+    res.json({ message: 'Photo deleted', relativePath });
+  } catch (err) {
+    console.error('[folders] DELETE photo error:', err.message);
+    res.status(500).json({ error: 'Failed to delete photo' });
   }
 });
 

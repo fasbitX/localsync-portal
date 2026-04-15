@@ -95,14 +95,24 @@ public class UploadController {
             // Store the file on disk
             storageService.storeFile(file, normalizedPath);
 
-            // Create PhotoFile record
-            PhotoFile photo = new PhotoFile();
-            photo.setFolder(folder);
-            photo.setFilename(filename);
-            photo.setRelativePath(normalizedPath);
-            photo.setFileSize(file.getSize());
-            photo.setContentType(file.getContentType());
-            photo.setVisible(true);
+            // Create or update PhotoFile record (handles re-uploads / retries)
+            Optional<PhotoFile> existingPhoto = photoFileRepository.findByRelativePath(normalizedPath);
+            PhotoFile photo;
+            if (existingPhoto.isPresent()) {
+                photo = existingPhoto.get();
+                photo.setFolder(folder);
+                photo.setFileSize(file.getSize());
+                photo.setContentType(file.getContentType());
+                photo.setVisible(true);
+            } else {
+                photo = new PhotoFile();
+                photo.setFolder(folder);
+                photo.setFilename(filename);
+                photo.setRelativePath(normalizedPath);
+                photo.setFileSize(file.getSize());
+                photo.setContentType(file.getContentType());
+                photo.setVisible(true);
+            }
             photoFileRepository.save(photo);
 
             // Update folder photo count

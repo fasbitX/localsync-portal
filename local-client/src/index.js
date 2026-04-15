@@ -25,6 +25,9 @@ app.use(express.json());
 // Serve the local dashboard UI
 app.use(express.static(path.join(__dirname, 'ui')));
 
+// Serve photos from watch directory for thumbnail display
+app.use('/photos', express.static(path.resolve(config.watchDir)));
+
 // Mount API routes
 app.use('/api', contactsRouter);
 app.use('/api', invitesRouter);

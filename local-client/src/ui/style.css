@@ -24,6 +24,7 @@
   --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
   --radius: 8px;
   --radius-sm: 4px;
+  --thumb-size: 180px;
 }
 
 /* ---- Reset ------------------------------------------------------------ */
@@ -492,33 +493,16 @@ tbody tr:hover {
   flex-shrink: 0;
   width: 20px;
   text-align: center;
-}
-
-.tree-icon--header {
   color: var(--warning);
-}
-
-.tree-icon--photo {
-  color: var(--primary);
 }
 
 .tree-label {
   font-size: 14px;
   font-weight: 500;
   color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
 }
 
-/* Header nodes: muted uppercase style */
-.tree-node:not(.tree-node--photo) > .tree-row > .tree-label {
-  color: var(--text-secondary);
-  font-weight: 600;
-  text-transform: uppercase;
-  font-size: 12px;
-  letter-spacing: 0.03em;
-}
 
 .tree-meta {
   font-size: 12px;
@@ -554,6 +538,264 @@ tbody tr:hover {
 .tree-row--uploading .tree-label {
   color: var(--primary);
   font-style: italic;
+}
+
+/* ---- Folders Two-Panel Layout ----------------------------------------- */
+
+.folders-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.folders-tree-panel {
+  width: 360px;
+  min-width: 280px;
+  flex-shrink: 0;
+}
+
+.folders-detail-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- Selected Tree Row ------------------------------------------------ */
+
+.tree-row--selected {
+  background: var(--primary-light);
+  border-left: 3px solid var(--primary);
+}
+
+/* ---- Photo Thumbnail Grid --------------------------------------------- */
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size), 1fr));
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.photo-thumb {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.photo-thumb:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.photo-thumb img {
+  width: 100%;
+  height: var(--thumb-size);
+  object-fit: cover;
+  display: block;
+  background: #f0f0f0;
+}
+
+.photo-thumb-placeholder {
+  width: 100%;
+  height: var(--thumb-size);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #f0f0f0;
+  color: #666;
+}
+
+.photo-thumb-placeholder-ext {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.photo-thumb-placeholder p {
+  font-size: 11px;
+  color: #999;
+}
+
+.photo-thumb-caption {
+  padding: 6px 8px 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.photo-thumb-meta {
+  padding: 0 8px 6px;
+  font-size: 11px;
+  color: var(--text-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Fullscreen Photo Overlay ----------------------------------------- */
+
+.photo-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  z-index: 500;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.photo-overlay.open {
+  display: flex;
+}
+
+.photo-overlay-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 32px;
+  font-weight: 300;
+  cursor: pointer;
+  line-height: 1;
+  z-index: 502;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+
+.photo-overlay-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.photo-overlay-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+  padding: 60px 64px 0;
+}
+
+.photo-overlay-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.photo-overlay-placeholder {
+  text-align: center;
+  color: #999;
+  padding: 40px 20px;
+}
+
+.photo-overlay-placeholder-ext {
+  font-size: 36px;
+  font-weight: 700;
+  color: #777;
+  margin-bottom: 12px;
+}
+
+.photo-overlay-placeholder p {
+  color: #aaa;
+}
+
+.photo-overlay-nav--prev,
+.photo-overlay-nav--next {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border: none;
+  font-size: 28px;
+  font-weight: 700;
+  padding: 20px 14px;
+  cursor: pointer;
+  z-index: 501;
+  border-radius: var(--radius-sm);
+  transition: background 0.2s;
+  line-height: 1;
+}
+
+.photo-overlay-nav--prev:hover,
+.photo-overlay-nav--next:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.photo-overlay-nav--prev { left: 12px; }
+.photo-overlay-nav--next { right: 12px; }
+
+.photo-overlay-bar {
+  width: 100%;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.photo-overlay-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.photo-overlay-name {
+  font-weight: 500;
+  font-size: 14px;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.photo-overlay-meta {
+  font-size: 12px;
+  color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.photo-overlay-counter {
+  font-size: 13px;
+  color: #94a3b8;
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 502;
+}
+
+/* ---- Settings --------------------------------------------------------- */
+
+.settings-radio-group {
+  display: flex;
+  gap: 16px;
+}
+
+.settings-radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.settings-radio-group input[type="radio"] {
+  accent-color: var(--primary);
 }
 
 /* ---- Context Menu ----------------------------------------------------- */
@@ -783,5 +1025,13 @@ tbody tr:hover {
 
   .content {
     margin-left: 0;
+  }
+
+  .folders-layout {
+    flex-direction: column;
+  }
+
+  .folders-tree-panel {
+    width: 100%;
   }
 }

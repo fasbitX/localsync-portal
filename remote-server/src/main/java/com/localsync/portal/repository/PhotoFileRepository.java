@@ -17,4 +17,6 @@ public interface PhotoFileRepository extends JpaRepository<PhotoFile, Long> {
     List<PhotoFile> findAllByFolderIdOrderByUploadedAtDesc(Long folderId);
 
     int countByFolderId(Long folderId);
+
+    Optional<PhotoFile> findByRelativePath(String relativePath);
 }
