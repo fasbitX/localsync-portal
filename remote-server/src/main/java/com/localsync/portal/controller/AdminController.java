@@ -148,11 +148,11 @@ public class AdminController {
 
     /**
      * GET /api/admin/folders
-     * List all folders ordered by creation date descending.
+     * List all folders ordered by relative path for hierarchical display.
      */
     @GetMapping("/api/admin/folders")
     public ResponseEntity<List<Map<String, Object>>> listFolders() {
-        List<Folder> folders = folderRepository.findAllByOrderByCreatedAtDesc();
+        List<Folder> folders = folderRepository.findAllByOrderByRelativePathAsc();
 
         List<Map<String, Object>> result = folders.stream()
                 .map(this::folderToMap)

@@ -17,4 +17,6 @@ public interface FolderRepository extends JpaRepository<Folder, Long> {
     List<Folder> findAllByVisibleTrue();
 
     List<Folder> findAllByOrderByCreatedAtDesc();
+
+    List<Folder> findAllByOrderByRelativePathAsc();
 }

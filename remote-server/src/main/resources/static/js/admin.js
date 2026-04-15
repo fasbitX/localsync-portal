@@ -121,6 +121,66 @@
         }
     }
 
+    /**
+     * Build a parent-child tree from the flat folder list using relativePath.
+     */
+    function buildFolderTree() {
+        var nodeMap = {};
+
+        // Create a virtual root
+        nodeMap["."] = { relativePath: ".", name: "Root", children: [], folder: null };
+
+        // Create nodes for every folder
+        folders.forEach(function (folder) {
+            var segments = folder.relativePath.split("/");
+            nodeMap[folder.relativePath] = {
+                relativePath: folder.relativePath,
+                name: segments[segments.length - 1],
+                children: [],
+                folder: folder
+            };
+        });
+
+        // Ensure intermediate parent nodes exist (in case any are missing from DB)
+        folders.forEach(function (folder) {
+            var segments = folder.relativePath.split("/");
+            for (var i = 1; i < segments.length; i++) {
+                var parentPath = segments.slice(0, i).join("/");
+                if (!nodeMap[parentPath]) {
+                    nodeMap[parentPath] = {
+                        relativePath: parentPath,
+                        name: segments[i - 1],
+                        children: [],
+                        folder: null
+                    };
+                }
+            }
+        });
+
+        // Wire parent-child relationships
+        Object.keys(nodeMap).forEach(function (key) {
+            if (key === ".") return;
+            var parentPath = key.includes("/")
+                ? key.substring(0, key.lastIndexOf("/"))
+                : ".";
+            var parent = nodeMap[parentPath];
+            if (parent) {
+                parent.children.push(nodeMap[key]);
+            }
+        });
+
+        // Sort children alphabetically at each level
+        function sortChildren(node) {
+            node.children.sort(function (a, b) {
+                return a.name.localeCompare(b.name);
+            });
+            node.children.forEach(sortChildren);
+        }
+        sortChildren(nodeMap["."]);
+
+        return nodeMap["."];
+    }
+
     function renderFolderList() {
         if (folders.length === 0) {
             folderListEl.innerHTML = '<p class="muted">No folders yet.</p>';
@@ -128,39 +188,59 @@
         }
 
         folderListEl.innerHTML = "";
-        folders.forEach(function (folder) {
-            var item = document.createElement("div");
-            item.className = "folder-item";
-            if (folder.id === selectedFolderId) {
-                item.classList.add("active");
-            }
-            if (!folder.visible) {
-                item.classList.add("folder-item-hidden");
-            }
+        var tree = buildFolderTree();
 
-            var info = document.createElement("div");
-            info.className = "folder-item-info";
+        function renderNodes(children, depth) {
+            children.forEach(function (node) {
+                var item = document.createElement("div");
+                item.className = "folder-item";
+                item.style.paddingLeft = (12 + depth * 20) + "px";
 
-            var name = document.createElement("div");
-            name.className = "folder-item-name";
-            name.textContent = folder.displayName || folder.relativePath;
+                if (node.folder && node.folder.id === selectedFolderId) {
+                    item.classList.add("active");
+                }
+                if (node.folder && !node.folder.visible) {
+                    item.classList.add("folder-item-hidden");
+                }
 
-            var count = document.createElement("div");
-            count.className = "folder-item-count";
-            count.textContent = folder.photoCount + " photo" +
-                (folder.photoCount !== 1 ? "s" : "") +
-                (folder.visible ? "" : " (hidden)");
+                var info = document.createElement("div");
+                info.className = "folder-item-info";
 
-            info.appendChild(name);
-            info.appendChild(count);
-            item.appendChild(info);
+                var name = document.createElement("div");
+                name.className = "folder-item-name";
+                name.textContent = node.name;
 
-            item.addEventListener("click", function () {
-                selectFolder(folder.id);
+                info.appendChild(name);
+
+                if (node.folder) {
+                    var count = document.createElement("div");
+                    count.className = "folder-item-count";
+                    count.textContent = node.folder.photoCount + " photo" +
+                        (node.folder.photoCount !== 1 ? "s" : "") +
+                        (node.folder.visible ? "" : " (hidden)");
+                    info.appendChild(count);
+                }
+
+                item.appendChild(info);
+
+                if (node.folder) {
+                    item.addEventListener("click", function () {
+                        selectFolder(node.folder.id);
+                    });
+                } else {
+                    item.style.cursor = "default";
+                    item.style.opacity = "0.6";
+                }
+
+                folderListEl.appendChild(item);
+
+                if (node.children.length > 0) {
+                    renderNodes(node.children, depth + 1);
+                }
             });
+        }
 
-            folderListEl.appendChild(item);
-        });
+        renderNodes(tree.children, 0);
     }
 
     async function selectFolder(folderId) {

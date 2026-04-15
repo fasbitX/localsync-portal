@@ -12,9 +12,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ResponseBody;
 
 import java.net.MalformedURLException;
 import java.util.LinkedHashMap;
@@ -28,7 +29,7 @@ import java.util.stream.Collectors;
  * Public gallery endpoints. No authentication required.
  * Gallery pages are unlisted -- there is no index of all galleries.
  */
-@RestController
+@Controller
 public class GalleryController {
 
     private static final Logger log = LoggerFactory.getLogger(GalleryController.class);
@@ -66,6 +67,7 @@ public class GalleryController {
      * Returns folder metadata as JSON.
      */
     @GetMapping("/api/gallery/{folderUuid}/info")
+    @ResponseBody
     public ResponseEntity<Map<String, Object>> getFolderInfo(@PathVariable String folderUuid) {
         UUID uuid;
         try {
@@ -100,6 +102,7 @@ public class GalleryController {
      * Returns list of visible photos in the gallery as JSON.
      */
     @GetMapping("/api/gallery/{folderUuid}/photos")
+    @ResponseBody
     public ResponseEntity<?> getGalleryPhotos(@PathVariable String folderUuid) {
         UUID uuid;
         try {
@@ -141,6 +144,7 @@ public class GalleryController {
      * Serve the photo file inline.
      */
     @GetMapping("/photos/{photoUuid}")
+    @ResponseBody
     public ResponseEntity<Resource> servePhoto(@PathVariable String photoUuid) {
         return servePhotoFile(photoUuid, false);
     }
@@ -150,6 +154,7 @@ public class GalleryController {
      * Serve the photo file as a download attachment.
      */
     @GetMapping("/photos/{photoUuid}/download")
+    @ResponseBody
     public ResponseEntity<Resource> downloadPhoto(@PathVariable String photoUuid) {
         return servePhotoFile(photoUuid, true);
     }
