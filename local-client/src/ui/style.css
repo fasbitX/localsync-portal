@@ -540,6 +540,12 @@ tbody tr:hover {
   font-style: italic;
 }
 
+.detail-dragover .card {
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+  background: var(--primary-light);
+}
+
 /* ---- Folders Two-Panel Layout ----------------------------------------- */
 
 .folders-layout {

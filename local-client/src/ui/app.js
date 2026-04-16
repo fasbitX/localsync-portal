@@ -504,67 +504,91 @@
       if (!row) return;
       var node = row.closest('.tree-node');
       var folderPath = node.dataset.path;
+      handleFileDrop(folderPath, e.dataTransfer.files, row);
+    });
+  }
 
-      var files = e.dataTransfer.files;
-      if (!files || files.length === 0) return;
+  /**
+   * Handle dropped files: filter, duplicate-check, and upload.
+   * @param {string} folderPath - target folder relative path
+   * @param {FileList} files - dropped files
+   * @param {Element} [treeRow] - optional tree row element for inline status
+   */
+  function handleFileDrop(folderPath, files, treeRow) {
+    if (!files || files.length === 0) return;
 
-      // Filter to image and zip files
-      var allowed = ['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw', '.zip'];
-      var imageFiles = [];
-      var zipFiles = [];
-      for (var i = 0; i < files.length; i++) {
-        var ext = files[i].name.substring(files[i].name.lastIndexOf('.')).toLowerCase();
-        if (ext === '.zip') {
-          zipFiles.push(files[i]);
-        } else if (allowed.indexOf(ext) !== -1) {
-          imageFiles.push(files[i]);
-        }
+    // Filter to image and zip files
+    var allowed = ['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw', '.zip'];
+    var imageFiles = [];
+    var zipFiles = [];
+    for (var i = 0; i < files.length; i++) {
+      var ext = files[i].name.substring(files[i].name.lastIndexOf('.')).toLowerCase();
+      if (ext === '.zip') {
+        zipFiles.push(files[i]);
+      } else if (allowed.indexOf(ext) !== -1) {
+        imageFiles.push(files[i]);
       }
+    }
 
-      if (imageFiles.length === 0 && zipFiles.length === 0) {
-        alert('No supported files found.\nSupported: ' + allowed.join(', '));
-        return;
-      }
+    if (imageFiles.length === 0 && zipFiles.length === 0) {
+      alert('No supported files found.\nSupported: ' + allowed.join(', '));
+      return;
+    }
 
-      // Duplicate-check image files; zips are handled server-side during extraction
-      checkAndResolve(folderPath, imageFiles, function (resolvedImages) {
-        var filesToUpload = resolvedImages.concat(zipFiles);
-        if (filesToUpload.length === 0) return;
+    // Duplicate-check image files; zips are handled server-side during extraction
+    checkAndResolve(folderPath, imageFiles, function (resolvedImages) {
+      var filesToUpload = resolvedImages.concat(zipFiles);
+      if (filesToUpload.length === 0) return;
 
-        var label = row.querySelector('.tree-label');
-        var originalText = label.textContent;
+      var label = treeRow ? treeRow.querySelector('.tree-label') : null;
+      var originalText = label ? label.textContent : '';
+      if (label) {
         label.textContent = originalText + ' (uploading ' + filesToUpload.length + '...)';
-        row.classList.add('tree-row--uploading');
+        treeRow.classList.add('tree-row--uploading');
+      }
 
-        var formData = new FormData();
-        for (var j = 0; j < filesToUpload.length; j++) {
-          formData.append('photos', filesToUpload[j]);
-        }
+      var formData = new FormData();
+      for (var j = 0; j < filesToUpload.length; j++) {
+        formData.append('photos', filesToUpload[j]);
+      }
 
-        var encodedPath = folderPath.replace(/\//g, '--');
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/folders/' + encodedPath + '/upload');
+      var encodedPath = folderPath.replace(/\//g, '--');
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/folders/' + encodedPath + '/upload');
 
-        xhr.onload = function () {
-          row.classList.remove('tree-row--uploading');
-          if (xhr.status >= 200 && xhr.status < 300) {
-            var result = JSON.parse(xhr.responseText);
-            label.textContent = originalText + ' (+' + result.uploaded + ')';
-            refreshAfterUpload(folderPath);
-          } else {
+      xhr.onload = function () {
+        if (treeRow) treeRow.classList.remove('tree-row--uploading');
+        if (xhr.status >= 200 && xhr.status < 300) {
+          var result = JSON.parse(xhr.responseText);
+          if (label) label.textContent = originalText + ' (+' + result.uploaded + ')';
+          if (result.uploaded === 0) {
+            alert('Upload completed but no photos were found.\nIf you uploaded a .zip, make sure it contains image files (JPG, PNG, TIFF, RAW, etc.).');
+          }
+          refreshAfterUpload(folderPath);
+        } else {
+          if (label) {
             label.textContent = originalText + ' (upload failed)';
             setTimeout(function () { label.textContent = originalText; }, 3000);
           }
-        };
+          try {
+            var err = JSON.parse(xhr.responseText || '{}');
+            alert('Upload failed: ' + (err.error || xhr.statusText));
+          } catch (_) {
+            alert('Upload failed: ' + xhr.statusText);
+          }
+        }
+      };
 
-        xhr.onerror = function () {
-          row.classList.remove('tree-row--uploading');
+      xhr.onerror = function () {
+        if (treeRow) treeRow.classList.remove('tree-row--uploading');
+        if (label) {
           label.textContent = originalText + ' (upload failed)';
           setTimeout(function () { label.textContent = originalText; }, 3000);
-        };
+        }
+        alert('Upload failed: network error');
+      };
 
-        xhr.send(formData);
-      });
+      xhr.send(formData);
     });
   }
 
@@ -678,7 +702,7 @@
         '</div></div>';
 
       if (files.length === 0) {
-        html += '<div class="empty-state"><p>No photos in this folder.<br>Drag &amp; drop images onto the folder, or right-click to upload.</p></div>';
+        html += '<div class="empty-state"><p>No photos in this folder.<br>Drag &amp; drop images or .zip files here, or right-click a folder to upload.</p></div>';
       } else {
         html += '<div class="photo-grid">';
         files.forEach(function (f, idx) {
@@ -718,6 +742,23 @@
           openFolderDetailsModal(detailsBtn.dataset.path);
         });
       }
+
+      // Allow drag-and-drop uploads onto the detail panel
+      detail.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        detail.classList.add('detail-dragover');
+      });
+      detail.addEventListener('dragleave', function (e) {
+        if (!detail.contains(e.relatedTarget)) {
+          detail.classList.remove('detail-dragover');
+        }
+      });
+      detail.addEventListener('drop', function (e) {
+        e.preventDefault();
+        detail.classList.remove('detail-dragover');
+        handleFileDrop(folderPath, e.dataTransfer.files);
+      });
 
       // Bind click on thumbnails to open overlay
       var grid = detail.querySelector('.photo-grid');
@@ -878,7 +919,7 @@
       '<input class="form-input" value="' + escapeHtml(folderPath) + '" readonly></div>' +
       '<div class="form-group"><label class="form-label">Select Photos</label>' +
       '<input class="form-input" type="file" name="photos" multiple accept=".jpg,.jpeg,.png,.tiff,.tif,.raw,.cr2,.nef,.arw,.zip" required>' +
-      '<small class="text-secondary">Supported: JPG, PNG, TIFF, RAW, CR2, NEF, ARW</small></div>' +
+      '<small class="text-secondary">Supported: JPG, PNG, TIFF, RAW, CR2, NEF, ARW, ZIP (images extracted automatically)</small></div>' +
       '<div id="uploadProgress" style="display:none;">' +
         '<div style="background:var(--border);border-radius:4px;height:8px;margin:8px 0;">' +
           '<div id="uploadBar" style="background:var(--primary);height:100%;border-radius:4px;width:0%;transition:width 0.3s;"></div>' +
@@ -1793,6 +1834,10 @@
 
   // Apply saved thumbnail size
   document.documentElement.style.setProperty('--thumb-size', THUMB_SIZES[thumbnailSize] + 'px');
+
+  // Prevent browser from opening/downloading files dropped outside valid targets
+  document.addEventListener('dragover', function (e) { e.preventDefault(); });
+  document.addEventListener('drop', function (e) { e.preventDefault(); });
 
   renderView();
   updateStatusIndicator();
